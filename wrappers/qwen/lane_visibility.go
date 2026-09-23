@@ -108,8 +108,16 @@ func mergeLaneSystemDefaults(data []byte) ([]byte, error) {
 	}
 	disabled := []string{}
 	if raw, ok := skills["disabled"]; ok {
-		if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) || json.Unmarshal(raw, &disabled) != nil {
+		var values []any
+		if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) || json.Unmarshal(raw, &values) != nil {
 			return nil, errors.New("Qwen system defaults skills.disabled must be a string array")
+		}
+		for _, value := range values {
+			name, ok := value.(string)
+			if !ok {
+				return nil, errors.New("Qwen system defaults skills.disabled must be a string array")
+			}
+			disabled = append(disabled, name)
 		}
 	}
 	found := false
@@ -205,6 +213,9 @@ func managedLaneMCPConfig(server map[string]any) ([]byte, error) {
 }
 
 func newLaneVisibilityFiles(endpointPath, key, cwd string, env []string, server map[string]any) (_ *laneVisibilityFiles, err error) {
+	if !filepath.IsAbs(endpointPath) {
+		return nil, errors.New("Qwen lane private config paths require an absolute endpoint path")
+	}
 	defaults, err := readHostSystemDefaults(effectiveSystemDefaultsPath(env, cwd))
 	if err != nil {
 		return nil, err
@@ -214,6 +225,14 @@ func newLaneVisibilityFiles(endpointPath, key, cwd string, env []string, server 
 		return nil, err
 	}
 	directory := filepath.Join(filepath.Dir(endpointPath), key+".config")
+	files := &laneVisibilityFiles{
+		directory:    directory,
+		defaultsPath: filepath.Join(directory, "system-defaults.json"),
+		mcpPath:      filepath.Join(directory, "mcp-config.json"),
+	}
+	if !filepath.IsAbs(files.defaultsPath) || !filepath.IsAbs(files.mcpPath) {
+		return nil, errors.New("Qwen lane private config paths must be absolute")
+	}
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		return nil, fmt.Errorf("create Qwen lane private config directory: %w", err)
 	}
@@ -222,11 +241,6 @@ func newLaneVisibilityFiles(endpointPath, key, cwd string, env []string, server 
 			err = errors.Join(err, os.RemoveAll(directory))
 		}
 	}()
-	files := &laneVisibilityFiles{
-		directory:    directory,
-		defaultsPath: filepath.Join(directory, "system-defaults.json"),
-		mcpPath:      filepath.Join(directory, "mcp-config.json"),
-	}
 	if err = os.WriteFile(files.defaultsPath, defaults, 0o600); err != nil {
 		return nil, err
 	}
@@ -237,7 +251,11 @@ func newLaneVisibilityFiles(endpointPath, key, cwd string, env []string, server 
 }
 
 func rejectBareSessionbusExtension(arguments []string) error {
-	bare, sessionbus := false, false
+	// Installed Qwen 0.24.3 isBareMode also accepts this inherited environment
+	// flag, using the same truthy values as its native isTruthy helper.
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("QWEN_CODE_SIMPLE")))
+	bare := value == "1" || value == "true" || value == "yes" || value == "on"
+	sessionbus := false
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {

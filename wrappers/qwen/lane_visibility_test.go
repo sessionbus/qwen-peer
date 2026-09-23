@@ -48,10 +48,14 @@ func TestManagedLaneSystemDefaultsFailClosed(t *testing.T) {
 		{"version-absent", `{}`},
 		{"version-unknown", `{"$version":3}`},
 		{"version-string", `{"$version":"4"}`},
+		{"version-decimal", `{"$version":4.0}`},
+		{"version-exponent", `{"$version":4e0}`},
 		{"skills-null", `{"$version":4,"skills":null}`},
 		{"disabled-object", `{"$version":4,"skills":{"disabled":{}}}`},
 		{"disabled-null", `{"$version":4,"skills":{"disabled":null}}`},
 		{"disabled-number", `{"$version":4,"skills":{"disabled":[1]}}`},
+		{"disabled-null-element", `{"$version":4,"skills":{"disabled":[null]}}`},
+		{"disabled-mixed-element", `{"$version":4,"skills":{"disabled":["other:skill",false]}}`},
 		{"duplicate-root", `{"$version":4,"$version":4}`},
 		{"duplicate-nested", `{"$version":4,"skills":{"disabled":[],"disabled":[]}}`},
 		{"trailing", `{"$version":4} true`},
@@ -83,9 +87,12 @@ func TestManagedLaneHostDefaultsPathAndFileSafety(t *testing.T) {
 	check(t, err != nil, "invalid host defaults accepted")
 	_, err = readHostSystemDefaults(directory)
 	check(t, err != nil, "directory accepted as settings file")
+	_, err = newLaneVisibilityFiles("relative-endpoint.sock", "test", directory, nil, nil)
+	check(t, err != nil && strings.Contains(err.Error(), "absolute endpoint path"), "relative private config path accepted: %v", err)
 }
 
 func TestManagedLaneBareExtensionConflictOnly(t *testing.T) {
+	t.Setenv("QWEN_CODE_SIMPLE", "")
 	for _, arguments := range [][]string{
 		{"--bare", "-e", "sessionbus"},
 		{"-e=sessionbus,other", "--bare"},
@@ -101,6 +108,23 @@ func TestManagedLaneBareExtensionConflictOnly(t *testing.T) {
 	} {
 		_, err := launchArguments(sessionkit.OpenOptions{Arguments: arguments})
 		must(t, err)
+	}
+}
+
+func TestManagedLaneInheritedBareExtensionConflict(t *testing.T) {
+	for _, value := range []string{"1", "true", "YES", " on "} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("QWEN_CODE_SIMPLE", value)
+			_, err := launchArguments(sessionkit.OpenOptions{Arguments: []string{"-e", "sessionbus"}})
+			check(t, err != nil && strings.Contains(err.Error(), "cannot select the sessionbus extension"), "native bare env %q accepted: %v", value, err)
+		})
+	}
+	for _, value := range []string{"", "0", "false", "off"} {
+		t.Run("false-"+value, func(t *testing.T) {
+			t.Setenv("QWEN_CODE_SIMPLE", value)
+			_, err := launchArguments(sessionkit.OpenOptions{Arguments: []string{"-e", "sessionbus"}})
+			must(t, err)
+		})
 	}
 }
 

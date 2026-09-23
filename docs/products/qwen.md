@@ -40,11 +40,18 @@
 > allowed-tool grant, unrelated extensions and caller arguments remain in
 > force; interactive Qwen does not use either private file. The files live
 > until the managed child exits and are removed on Close. The child and its
-> descendants inherit the defaults-path environment variable. If an existing
-> system-defaults file cannot be merged safely, managed Open fails before
-> native launch. Only `--bare` combined with an explicit `-e sessionbus` is
-> newly rejected, because that combination disables the skill-visibility
-> control. A model may still attempt the disabled Skill or omit the MCP call;
+> descendants inherit the defaults-path environment variable. A panic or
+> SIGKILL can leave the private directory behind, as with the lane socket and
+> lock. The host defaults are preserved semantically, not byte-for-byte: JSON
+> keys may be reordered and `<>&` or U+2028 escaped, while existing values and
+> numbers retain their meaning. Managed Open fails before native launch if the
+> host defaults cannot be merged safely. Deliberately stricter than Qwen, it
+> rejects missing or nonliteral `$version: 4` (including `4.0` and `4e0`),
+> files over 1 MiB, and unreadable, looping or non-directory paths. The only
+> new caller-argument restriction is `--bare` with explicit `-e sessionbus`;
+> the same conflict is rejected when inherited `QWEN_CODE_SIMPLE` enables bare
+> mode. Either would disable the skill-visibility control. A model may still
+> attempt the disabled Skill or omit the MCP call;
 > neither constitutes acceptance. QWK923A/B remain original incomplete-wake
 > evidence, and the candidate needs reviewed PR, installation and one fresh
 > default managed-idle cell before any functional claim.

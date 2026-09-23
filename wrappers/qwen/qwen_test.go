@@ -305,6 +305,7 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	check(t, args[8] == filepath.Join(p.visibilityDir, "mcp-config.json"), "MCP config path = %#v", args[8])
 	check(t, child[laneSystemDefaultsEnv] == filepath.Join(p.visibilityDir, "system-defaults.json"), "defaults path = %#v", child[laneSystemDefaultsEnv])
 	check(t, filepath.IsAbs(args[8].(string)), "MCP config path is relative")
+	check(t, filepath.IsAbs(child[laneSystemDefaultsEnv].(string)), "system defaults path is relative")
 	dirInfo, err := os.Stat(p.visibilityDir)
 	must(t, err)
 	check(t, dirInfo.Mode().Perm() == 0o700, "lane config directory mode = %o", dirInfo.Mode().Perm())

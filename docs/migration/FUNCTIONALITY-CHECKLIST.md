@@ -68,9 +68,14 @@ count includes the original `TestMain` harness.
   version in a lane-private file, or fails Open before launch on an unsafe or
   unknown file. It preserves user/workspace settings and unrelated extensions,
   leaves AUTO and interactive launches untouched, and removes its private
-  files after the ACP child exits. The defaults-path variable is inherited by
-  the lane child tree; `--bare` with explicit `-e sessionbus` is rejected because
-  the targeted skill hide would be ineffective. A model that still invokes the
+  files after the ACP child exits; a panic or SIGKILL can leave them behind.
+  The defaults-path variable is inherited by the lane child tree. Preservation
+  is semantic, not byte-literal: JSON keys or escapes may change, but existing
+  values and numbers keep their meaning. Managed Open fails closed on missing
+  or nonliteral `$version: 4` (including `4.0`/`4e0`), files over 1 MiB, or
+  unreadable, looping or non-directory paths. `--bare` or truthy inherited
+  `QWEN_CODE_SIMPLE` with explicit `-e sessionbus` is rejected because the
+  targeted skill hide would be ineffective. A model that still invokes the
   disabled Skill receives a native disabled-skill response, not a successful
   MCP send. The one-cell gate requires the actual granted MCP result, direct
   reply, exact final, and owned cleanup. None is claimed yet.
