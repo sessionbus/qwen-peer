@@ -29,6 +29,26 @@
 > is separate and retains its demonstrated idle-wake/active-join behavior. See
 > [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 
+> Managed-lane candidate correction (source only, 2026-09-23): the wrapper writes
+> a private system-defaults file that adds only `sessionbus:sessionbus` to
+> `skills.disabled`, while retaining all effective host system defaults. It
+> passes that file only to its ACP child through
+> `QWEN_CODE_SYSTEM_DEFAULTS_PATH`. The wrapper also passes a private
+> `--mcp-config` containing its existing per-session `sessionbus` MCP server
+> with `alwaysLoadTools: true`, so the already-granted
+> `mcp__sessionbus__sessionbus` tool can be shown directly. AUTO, the exact
+> allowed-tool grant, unrelated extensions and caller arguments remain in
+> force; interactive Qwen does not use either private file. The files live
+> until the managed child exits and are removed on Close. The child and its
+> descendants inherit the defaults-path environment variable. If an existing
+> system-defaults file cannot be merged safely, managed Open fails before
+> native launch. Only `--bare` combined with an explicit `-e sessionbus` is
+> newly rejected, because that combination disables the skill-visibility
+> control. A model may still attempt the disabled Skill or omit the MCP call;
+> neither constitutes acceptance. QWK923A/B remain original incomplete-wake
+> evidence, and the candidate needs reviewed PR, installation and one fresh
+> default managed-idle cell before any functional claim.
+
 Flat fact list for Qwen Code as a Sessionbus product. No prose beyond facts.
 
 Provenance and tag legend:

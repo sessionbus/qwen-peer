@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 }
 
 func fakeChild() {
-	record := map[string]any{"args": os.Args[1:], "lane_socket": os.Getenv("SESSIONBUS_LANE_SOCKET")}
+	record := map[string]any{"args": os.Args[1:], "lane_socket": os.Getenv("SESSIONBUS_LANE_SOCKET"), laneSystemDefaultsEnv: os.Getenv(laneSystemDefaultsEnv)}
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		record[name] = os.Getenv(name)
 	}
@@ -283,6 +283,10 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	t.Setenv("QWEN_TEST_CHILD", "1")
 	t.Setenv("QWEN_TEST_RECORD", record)
 	t.Setenv("QWEN_TEST_RESUME_FRAME", string(mustRead(t, "testdata/qwen-0.23.0-resume-result.jsonl")))
+	hostDefaults := filepath.Join(directory, "host-defaults.json")
+	hostDefaultsContent := []byte(`{"$version":4,"skills":{"disabled":["other:skill"]},"tools":{"visible":["Bash"]}}`)
+	must(t, os.WriteFile(hostDefaults, hostDefaultsContent, 0o600))
+	t.Setenv(laneSystemDefaultsEnv, hostDefaults)
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		t.Setenv(name, "secret")
 	}
@@ -296,12 +300,40 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	check(t, result.SessionID == fixtureID, "open = %#v", result)
 	var child map[string]any
 	must(t, json.Unmarshal(mustRead(t, record), &child))
-	check(t, reflect.DeepEqual(child["args"], []any{"--acp", "--yolo", "-m", "model", "--screen-reader", "--allowed-tools", managedQwenTool}), "args = %#v", child["args"])
+	args := child["args"].([]any)
+	check(t, len(args) == 9 && reflect.DeepEqual(args[:7], []any{"--acp", "--yolo", "-m", "model", "--screen-reader", "--allowed-tools", managedQwenTool}) && args[7] == "--mcp-config", "args = %#v", args)
+	check(t, args[8] == filepath.Join(p.visibilityDir, "mcp-config.json"), "MCP config path = %#v", args[8])
+	check(t, child[laneSystemDefaultsEnv] == filepath.Join(p.visibilityDir, "system-defaults.json"), "defaults path = %#v", child[laneSystemDefaultsEnv])
+	check(t, filepath.IsAbs(args[8].(string)), "MCP config path is relative")
+	dirInfo, err := os.Stat(p.visibilityDir)
+	must(t, err)
+	check(t, dirInfo.Mode().Perm() == 0o700, "lane config directory mode = %o", dirInfo.Mode().Perm())
+	for _, private := range []string{args[8].(string), child[laneSystemDefaultsEnv].(string)} {
+		info, err := os.Stat(private)
+		must(t, err)
+		check(t, info.Mode().Perm() == 0o600, "lane config file mode = %o", info.Mode().Perm())
+	}
+	var cli map[string]any
+	must(t, json.Unmarshal(mustRead(t, args[8].(string)), &cli))
+	server := cli["mcpServers"].(map[string]any)[managedQwenServer].(map[string]any)
+	check(t, len(cli["mcpServers"].(map[string]any)) == 1 && len(server["args"].([]any)) == 0, "extra or changed MCP server: %#v", cli)
+	check(t, server["alwaysLoadTools"] == true && server["trust"] == nil, "CLI MCP server = %#v", server)
+	check(t, server["command"] == filepath.Join(filepath.Dir(os.Args[0]), PrivateAlias), "CLI MCP executable = %#v", server["command"])
+	check(t, server["env"].(map[string]any)[LaneEndpointEnv] == p.endpoint.Path, "CLI MCP endpoint = %#v", server["env"])
+	var defaults map[string]any
+	must(t, json.Unmarshal(mustRead(t, child[laneSystemDefaultsEnv].(string)), &defaults))
+	check(t, reflect.DeepEqual(defaults["skills"].(map[string]any)["disabled"], []any{"other:skill", managedSkillName}), "defaults = %#v", defaults)
+	check(t, reflect.DeepEqual(defaults["tools"], map[string]any{"visible": []any{"Bash"}}), "host tools policy changed: %#v", defaults)
+	check(t, reflect.DeepEqual(mustRead(t, hostDefaults), hostDefaultsContent), "host defaults were mutated")
 	check(t, child["lane_socket"] == "", "legacy lane socket reached native: %#v", child["lane_socket"])
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		check(t, child[name] == "", "%s reached child: %#v", name, child)
 	}
+	visibilityDir := p.visibilityDir
 	must(t, p.Close(context.Background(), sessionkit.SessionCloseRequest{}))
+	_, statErr := os.Stat(visibilityDir)
+	check(t, os.IsNotExist(statErr), "lane config survived Close: %v", statErr)
+	check(t, reflect.DeepEqual(mustRead(t, hostDefaults), hostDefaultsContent), "host defaults changed on Close")
 	t.Setenv("QWEN_TEST_RESUME_FRAME", "")
 	t.Setenv("QWEN_TEST_RESUME_ID", "22222222-3333-4444-8555-666666666666")
 	gateRead, gateWrite, err := os.Pipe()
@@ -323,6 +355,8 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	if !strings.Contains(err.Error(), "signal:") {
 		t.Fatalf("cleanup error omitted: %v", err)
 	}
+	_, statErr = os.Stat(p.visibilityDir)
+	check(t, os.IsNotExist(statErr), "failed Open retained lane config: %v", statErr)
 }
 
 func delivery(body string) sessionkit.DeliveryRequest {

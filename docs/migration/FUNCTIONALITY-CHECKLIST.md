@@ -6,13 +6,16 @@ and fresh installed behavior are separate evidence. Source extraction is
 reviewed, PR #1's four hosted checks pass, and the permanent install is
 complete and idempotent. Fresh default managed-idle wake remains incomplete;
 the other wake surfaces remain untested on the extracted installation.
+An uninstalled managed-lane candidate now hides only the Sessionbus Skill and
+loads the same granted MCP tool directly; its effect on native model behavior
+is untested.
 
 | ID | Preserved functionality | Existing regression coverage | Installed evidence / limit |
 |---|---|---|---|
 | F01 | Complete archive install/update, extension and generic skill, private `qwen-peer-mcp` alias, checksum and archive-role safety | `package_archive_test.go`; release install/download/selection tests | Real-home install and idempotent reinstall of the exact `acd7c4c` archive passed; extension, plugin and aliases match the archive |
 | F02 | One public binary, wrapper/native version and token-selected lane dispatch | `cmd/qwen-peer/main_test.go`; `version_test.go`; common peerversion | Permanent binary/source bind to `acd7c4c`; native Qwen 0.24.3 is observation provenance |
 | F03 | Native argv order, literal `--`, group/name options, resume/continue/fork and `--yolo` | `arguments_test.go`; `interactive_config_test.go`; `interactive_name_test.go` | Preserve native selectors and title semantics; typed lane permission is separate |
-| F04 | Default native policy plus exact managed `--allowed-tools mcp__sessionbus__sessionbus`; reject conflicting excludes | `arguments_test.go`; `review_config_test.go` | No grant to Skill or unrelated tools; the unmerged `5c1126e` is excluded |
+| F04 | Default native policy plus exact managed `--allowed-tools mcp__sessionbus__sessionbus`; reject conflicting excludes | `arguments_test.go`; `review_config_test.go`; `lane_visibility_test.go` | Candidate: lane-only private `skills.disabled` hides `sessionbus:sessionbus` and same-name `--mcp-config` sets `alwaysLoadTools` on the already-granted MCP server; no Skill or unrelated grant, and the unmerged `5c1126e` remains excluded. Not installed or live-accepted |
 | F05 | Ordinary Qwen stays ordinary: extension contains one skill, no global MCP manifest or helper | `package_test.go`; `package_archive_test.go` | Plain native launch exposes guidance only and no bus owner |
 | F06 | Native identity/title, exclusive initial name claim, rename, resume and fork | `interactive_name_test.go`; `review_initial_name_test.go`; `interactive_reconnect_test.go` | Exact native/public identity join; preserve native history and session-switch limit |
 | F07 | Discovery, list/send, public schema/errors and authenticated reply correlation | `peer_test.go`; `lane_endpoint_test.go`; common MCP tests | Direct MCP use historically works; ToolSearch may defer discovery |
@@ -61,6 +64,16 @@ count includes the original `TestMain` harness.
   These results do not show whether native AUTO would permit direct selection
   of the granted MCP tool on 0.24.x. No bypass cell was run; bypass would not
   substitute for default mode.
+- The source-only candidate preserves host system defaults and their schema
+  version in a lane-private file, or fails Open before launch on an unsafe or
+  unknown file. It preserves user/workspace settings and unrelated extensions,
+  leaves AUTO and interactive launches untouched, and removes its private
+  files after the ACP child exits. The defaults-path variable is inherited by
+  the lane child tree; `--bare` with explicit `-e sessionbus` is rejected because
+  the targeted skill hide would be ineffective. A model that still invokes the
+  disabled Skill receives a native disabled-skill response, not a successful
+  MCP send. The one-cell gate requires the actual granted MCP result, direct
+  reply, exact final, and owned cleanup. None is claimed yet.
 - One fresh cell gets one send, no replay, and no post-inbound harness prompt,
   native input or lifecycle turn. Preserve first failures and actual receipts.
 - Native session switching remains limited to the launch's initial identity, as
