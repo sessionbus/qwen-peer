@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -250,12 +251,35 @@ func newLaneVisibilityFiles(endpointPath, key, cwd string, env []string, server 
 	return files, nil
 }
 
+func qwenBareEnvEnabled(raw string) bool {
+	// Match JavaScript String.trim's WhiteSpace and LineTerminator characters.
+	// Go's TrimSpace additionally removes U+0085, which Qwen does not trim.
+	value := strings.TrimFunc(raw, func(character rune) bool {
+		switch character {
+		case '\t', '\v', '\f', ' ', '\u00a0', '\ufeff', '\n', '\r', '\u2028', '\u2029':
+			return true
+		}
+		return unicode.Is(unicode.Zs, character)
+	})
+	// Qwen compares the lowercased value to four ASCII words. Non-ASCII
+	// characters cannot form any of those exact values after lowercasing.
+	for _, character := range value {
+		if character > 127 {
+			return false
+		}
+	}
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
 func rejectBareSessionbusExtension(arguments []string) error {
-	// Installed Qwen 0.24.3 isBareMode also accepts this inherited environment
-	// flag, using the same truthy values as its native isTruthy helper.
-	value := strings.ToLower(strings.TrimSpace(os.Getenv("QWEN_CODE_SIMPLE")))
-	bare := value == "1" || value == "true" || value == "yes" || value == "on"
-	sessionbus := false
+	// Installed Qwen 0.24.3 isBareMode accepts either the CLI flag or this
+	// inherited environment flag; both bypass the lane defaults file.
+	bareFromEnv := qwenBareEnvEnabled(os.Getenv("QWEN_CODE_SIMPLE"))
+	bareFromArgs, sessionbus := false, false
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {
@@ -263,7 +287,7 @@ func rejectBareSessionbusExtension(arguments []string) error {
 		}
 		name, value, attached := strings.Cut(argument, "=")
 		if name == "--bare" && (!attached || value == "true") {
-			bare = true
+			bareFromArgs = true
 		}
 		if name != "-e" && name != "--extensions" {
 			continue
@@ -280,8 +304,15 @@ func rejectBareSessionbusExtension(arguments []string) error {
 			sessionbus = sessionbus || strings.EqualFold(candidate, managedQwenServer)
 		}
 	}
-	if bare && sessionbus {
-		return errors.New("managed Qwen --bare cannot select the sessionbus extension: its Skill cannot be hidden")
+	if (bareFromArgs || bareFromEnv) && sessionbus {
+		source := "--bare"
+		if bareFromEnv {
+			source = "QWEN_CODE_SIMPLE"
+			if bareFromArgs {
+				source = "--bare or QWEN_CODE_SIMPLE"
+			}
+		}
+		return fmt.Errorf("managed Qwen %s cannot select the sessionbus extension: its Skill cannot be hidden", source)
 	}
 	return nil
 }

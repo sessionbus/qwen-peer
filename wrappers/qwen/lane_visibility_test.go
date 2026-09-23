@@ -112,14 +112,14 @@ func TestManagedLaneBareExtensionConflictOnly(t *testing.T) {
 }
 
 func TestManagedLaneInheritedBareExtensionConflict(t *testing.T) {
-	for _, value := range []string{"1", "true", "YES", " on "} {
+	for _, value := range []string{"1", "true", "YES", " on ", "\ufeff1", "\u20281\u2029"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv("QWEN_CODE_SIMPLE", value)
 			_, err := launchArguments(sessionkit.OpenOptions{Arguments: []string{"-e", "sessionbus"}})
-			check(t, err != nil && strings.Contains(err.Error(), "cannot select the sessionbus extension"), "native bare env %q accepted: %v", value, err)
+			check(t, err != nil && strings.Contains(err.Error(), "QWEN_CODE_SIMPLE cannot select the sessionbus extension"), "native bare env %q accepted: %v", value, err)
 		})
 	}
-	for _, value := range []string{"", "0", "false", "off"} {
+	for _, value := range []string{"", "0", "false", "off", "\u00851"} {
 		t.Run("false-"+value, func(t *testing.T) {
 			t.Setenv("QWEN_CODE_SIMPLE", value)
 			_, err := launchArguments(sessionkit.OpenOptions{Arguments: []string{"-e", "sessionbus"}})
