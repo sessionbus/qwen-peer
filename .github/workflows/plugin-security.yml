@@ -18,7 +18,7 @@ jobs:
           persist-credentials: false
       - uses: hashgraph-online/ai-plugin-scanner-action@caba2e96aa8ad2feb6cf6fca52442b52e22e779f # v1.2.635
         with:
-          plugin_dir: "."
+          plugin_dir: "qwen"
           min_score: 80
           fail_on_severity: high
           online: "false"
