@@ -60,7 +60,10 @@ count includes the original `TestMain` harness.
   native Qwen 0.24.3 AUTO denied it. Neither cell made an MCP call, sent a
   reply or emitted the requested wake final. A's denial also cited its old
   setup prohibition. B used the reviewed setup-only restraint; its denial no
-  longer cited that prohibition. Both original failures remain preserved.
+  longer cited that prohibition. Both drivers later exited on local launcher
+  stdin EOF, after the native AUTO denial and the model's next response;
+  that EOF was a harness exit condition, not the Qwen outcome. Both original
+  failures remain preserved.
   These results do not show whether native AUTO would permit direct selection
   of the granted MCP tool on 0.24.x. No bypass cell was run; bypass would not
   substitute for default mode.

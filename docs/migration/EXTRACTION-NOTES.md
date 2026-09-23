@@ -78,7 +78,10 @@ selected the non-granted `skill` tool, and native Qwen 0.24.3 AUTO denied the
 cross-session action before any Sessionbus MCP call, reply or requested final.
 A's denial also cited its standing setup prohibition. B used a reviewed
 setup-only restraint and its denial did not cite that prohibition, so the
-fixture confounder was removed without completing the wake. The original A
+fixture confounder was removed without completing the wake. Both drivers
+later exited on local launcher stdin EOF, after the native AUTO denial
+and the model's next response; that EOF was a harness exit condition,
+not the Qwen outcome. The original A
 and B failure packets remain preserved at
 `qwen-wake-acceptance-live-dev1-20260923/cells-qwk923a` and `cells-qwk923b`
 (seals `1f77f999` and `6e4318b6`). The native direct-MCP selection path on
