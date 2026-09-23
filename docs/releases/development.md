@@ -23,7 +23,7 @@ This development/beta build publishes all eight peer archives for Linux and macO
 
 ## Preview status
 
-Pi and OMP remain preview integrations. Installed evidence establishes Pi normal Run, delivery/Forget, interactive replacement, and startup/resume; OMP zero-input Worker/interactive and core normal Run. Some original fixture runs failed on verifier assumptions and were assessed from preserved evidence; those are not reported as full fixture passes. The detailed record is in [the design and acceptance record](../designs/pi-omp-0.5.0/DESIGN.md).
+Pi and OMP remain preview integrations. Installed evidence establishes Pi normal Run, delivery/Forget, interactive replacement, and startup/resume; OMP zero-input Worker/interactive and core normal Run. Some original fixture runs failed on verifier assumptions and were assessed from preserved evidence; those are not reported as full fixture passes. The detailed record is in [the design and acceptance record](https://github.com/sessionbus/pi-omp/blob/710e5d33369cba4fb9468cd24fea0fe844a0219d/docs/designs/pi-omp-0.5.0/DESIGN.md).
 
 The newly integrated reconnect and schema fixes have deterministic and process-fixture coverage, but fresh installed-product validation is still in progress. Pi admitted interrupt/healthy recovery and OMP staged delivery/Forget remain selected work before removing their preview designation; they do not block a stable peers release that explicitly retains that designation. An OMP native extension writing arbitrary stdout can also invalidate the RPC connection.
 

@@ -3,8 +3,8 @@ package main
 
 import (
 	"context"
-	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/qwen"
+	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/qwen-peer/wrappers/qwen"
 	"testing"
 )
 

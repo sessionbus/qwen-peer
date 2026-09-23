@@ -29,9 +29,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
       - name: Validate source and build archives
         env:
           TARGET_OS: ${{ matrix.os }}
@@ -40,12 +37,7 @@ jobs:
           SESSIONBUS_PEERS_REVISION: ${{ github.sha }}
         run: |
           go test ./...
-          node --test wrappers/pifamily/extension/bridge.test.mjs wrappers/pi/native.test.mjs wrappers/pi/extension.test.mjs wrappers/omp/extension.test.mjs
-          GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-claude dist
-          GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-codex dist
-          for product in grok qwen opencode kilo pi omp; do
-            GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-product "$product" dist
-          done
+          GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" scripts/package-product qwen dist
           git rev-parse HEAD > dist/SOURCE.txt
       - uses: actions/upload-artifact@v4
         with:

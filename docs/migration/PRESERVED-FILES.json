@@ -1,0 +1,1413 @@
+{
+ "source": "710e5d33369cba4fb9468cd24fea0fe844a0219d",
+ "status": "frozen before extraction; locations verified against qwen-peer and pinned peer-common",
+ "shared_module": {
+  "module": "github.com/sessionbus/peer-common",
+  "version": "v0.0.0-20260922143100-eb655f686e44",
+  "commit": "eb655f686e4456a4c1121054763318e3d27e89b0"
+ },
+ "file_count": 91,
+ "test_function_count": 146,
+ "files": [
+  {
+   "path": "cmd/qwen-peer/main.go",
+   "sha256": "4ad579dc30f859fcfb215717e3376fa9696b38357a1883565d2a3b2cb1952b5f",
+   "git_blob": "3fcf19ebed2061608cb17ebdabf4aa747a6ee61f",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "cmd/qwen-peer/main.go"
+   }
+  },
+  {
+   "path": "cmd/qwen-peer/main_test.go",
+   "sha256": "71738c0cc4b0f5c9e23684e61a9d8273f2003a2cb5f1aa286a8dd2e77e0a06ed",
+   "git_blob": "ab1298762bb14685879b0c96ecf88567629528cd",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestLaneModeRejectsArguments",
+    "TestPrivateEntryRejectsArgumentsAndMissingEndpoint"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "cmd/qwen-peer/main_test.go"
+   }
+  },
+  {
+   "path": "docs/designs/claude-0.5.0/held-lane-skills/qwen-lane/SKILL.md",
+   "sha256": "2220f8dcf0c2bdc056c32d5eb41ddf7675b18ddd44cbcc2cb76c5ee5415b6448",
+   "git_blob": "06c4c790ce381be7aaebc9a7de77f70d2db18ec1",
+   "mode": "100644",
+   "class": "held-lane-reference",
+   "permitted_change": "byte-identical copy of the held Qwen lane reference",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/designs/qwen-0.5.0/legacy-lane-skill/SKILL.md"
+   }
+  },
+  {
+   "path": "docs/designs/qwen-0.5.0/ACCEPTANCE.md",
+   "sha256": "f7c469cf918bec028048ddc72ec175d75a3d333240f9793793e1ae48f987ce0d",
+   "git_blob": "966e442bc517ab29edbf694830eca8e2ff87b3b8",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/designs/qwen-0.5.0/ACCEPTANCE.md"
+   }
+  },
+  {
+   "path": "docs/designs/qwen-0.5.0/EVIDENCE.json",
+   "sha256": "dbcf27233c59f598d8e29a4d68c72757e3c003daad00fd91b7518f925542bb69",
+   "git_blob": "b949bb023a47c3fcdc9c148eb52cd1e95ce6701f",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/designs/qwen-0.5.0/EVIDENCE.json"
+   }
+  },
+  {
+   "path": "docs/designs/qwen-0.5.0/IMPLEMENTATION.md",
+   "sha256": "04b304244d60d59aca66f89a1bf90040b38a581f855f1d418cee17cb9b43f66c",
+   "git_blob": "4c75553ed9b6aec286e73f9b492d09fa51536445",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/designs/qwen-0.5.0/IMPLEMENTATION.md"
+   }
+  },
+  {
+   "path": "docs/designs/qwen-0.5.0/SIZE.json",
+   "sha256": "1e84f665b1683507cb0fc04c50697925f06f2649fc3163f688860c57eafd1505",
+   "git_blob": "d178e7aa82d51fc751dcba55e1cd96eeed9e9dc0",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/designs/qwen-0.5.0/SIZE.json"
+   }
+  },
+  {
+   "path": "docs/designs/qwen-0.5.0/measure.py",
+   "sha256": "b5599dd1fff51552fb81d264deb9e9b23f1100ad6bc019dadfacfaa27ceef0c3",
+   "git_blob": "b205fc147b6ab3c06cff87826f17e7f1822dee67",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/designs/qwen-0.5.0/measure.py"
+   }
+  },
+  {
+   "path": "docs/products/qwen-0.23.0-help.txt",
+   "sha256": "83e1c3d996daff34003ba8f067be85fb4bb50e24bd0d7b52c2f609a685b26291",
+   "git_blob": "d870b8d469da62d27efb51b5721c83df918590d9",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/products/qwen-0.23.0-help.txt"
+   }
+  },
+  {
+   "path": "docs/products/qwen.md",
+   "sha256": "f3c316fe224fb9f8ac1bd7484abf6f2b14dbe81027203dd4da88473a657f1f15",
+   "git_blob": "3640be60e843cce4766c88a269dd977ceaa7ce60",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "docs/products/qwen.md"
+   }
+  },
+  {
+   "path": "internal/peerversion/version.go",
+   "sha256": "eba3a70af92bd7c53ca78422fc96b6b223c1cd81eca72a09430499a042982d2d",
+   "git_blob": "4026bc9e7e5b20ca11ffe6b8fdab54714960ecae",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "peerversion/version.go"
+   }
+  },
+  {
+   "path": "internal/peerversion/version_test.go",
+   "sha256": "10e619661cebe9dd7ac3c34e9d60a57ecf76cd48b1334cc501499968a1817aee",
+   "git_blob": "8e04c0a6a2cb608ae3d47c502793248538d88a93",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestResolvePublicVersionAndNativeEscape",
+    "TestResolveKeepsPrivateAndNonExactArguments"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "peerversion/version_test.go"
+   }
+  },
+  {
+   "path": "internal/testsocket/directory.go",
+   "sha256": "373cdb0e9219c4235ff88dc11a30987bec1725939a6e02df58087adf00ce74c0",
+   "git_blob": "9268dbbaf3b13ffbeb8efc4b5eb9c5befb350bd8",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "testsocket/directory.go"
+   }
+  },
+  {
+   "path": "internal/testsocket/directory_test.go",
+   "sha256": "6e40eed060759a1eaf1cac5e552bed9113e5e5e28e0132e597ce16a741e696dc",
+   "git_blob": "bb34848ac0b2c594ec75ad56ddc338e4b714f260",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestDirectoryUsesDefaultSessionSocketParent",
+    "TestDirectoryResolvesSymlinkBeforeBindingSocket"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "testsocket/directory_test.go"
+   }
+  },
+  {
+   "path": "qwen/README.md",
+   "sha256": "973104aad7616ac3f27458d417c9141f9517b2655ed804505d88c70b7892ea4c",
+   "git_blob": "77f38b967f7a4c9aeded85c9badcfb0578f92d0a",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "canonical release/bootstrap URL github.com/antst/sessionbus-peers -> github.com/sessionbus/qwen-peer only (if a canonical URL is repointed)",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "qwen/README.md"
+   }
+  },
+  {
+   "path": "qwen/plugin.json",
+   "sha256": "7b9b33d6d34937d359626e1a80cebd6bac5bf06dc52b56b0e0891d8629eba8f6",
+   "git_blob": "2a835f23b7f67a2de305404bb317980cd723faf3",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "qwen/plugin.json"
+   }
+  },
+  {
+   "path": "qwen/skills/sessionbus/SKILL.md",
+   "sha256": "c10e45f2447c00d58e7189202be05ed2897258064cc34711e0465b06fd8f8e97",
+   "git_blob": "ec2bfd485d5a2f63ce07d187f32d9b697ee90c7e",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "qwen/skills/sessionbus/SKILL.md"
+   }
+  },
+  {
+   "path": "scripts/cleanup-legacy/inventory.go",
+   "sha256": "df9433da5b355b42e5d407966e85803c87b25a7d5ba40d61d914b77a9a1837d6",
+   "git_blob": "f8fe397225380ac03bd62ac8eb7443fe94218e83",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "scripts/cleanup-legacy/inventory.go"
+   }
+  },
+  {
+   "path": "scripts/cleanup-legacy/main.go",
+   "sha256": "b427e8052bac1eeb3c1e9513746ee8ad7d0e1754fd8c25d8b6f1405de2ee4788",
+   "git_blob": "4525700fe2281a6b3e7526fba5dafa368dc391d6",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "scripts/cleanup-legacy/main.go"
+   }
+  },
+  {
+   "path": "scripts/cleanup-legacy/main_test.go",
+   "sha256": "4bae5028687ea87ef06dd8288ea4e31316d3c4ace7cf04ef971823e27e02d32a",
+   "git_blob": "c1c1a288144be064669efd383652f2d23d0ea762",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestQuarantinePreservesCurrentAliasAndLegacyTarget",
+    "TestConfigEditPreservesSymlinkConcurrentNativeChangesAndBackup",
+    "TestRejectIndirectParentAndReplacedAlias",
+    "TestNativeMCPRemovalIsOwnershipCheckedAndExact",
+    "TestGrokCleanupUsesNativeInstalledRepository"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "scripts/cleanup-legacy/main_test.go"
+   }
+  },
+  {
+   "path": "scripts/cleanup-legacy/review_boundary_test.go",
+   "sha256": "3b3f0a71481b1915ad2bc8529c9db8652791b14a745db47493d3830fdcca1151",
+   "git_blob": "ad687776e75ef199197a29554a82532bdfb3594d",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestReviewNativeRemovalRejectsConfigOutsideHome",
+    "TestReviewClaudeMixedScopesRefuseBeforePlan",
+    "TestReviewServiceOwnershipRequiresExecutableNotComment"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "scripts/cleanup-legacy/review_boundary_test.go"
+   }
+  },
+  {
+   "path": "scripts/install-qwen.sh",
+   "sha256": "9b909fb4bb9549f5c0b3dfa0cd9684daab06ac893095c07a7932dddbac195c0f",
+   "git_blob": "efeca350d9e5fceffcee3a83352646919e21026e",
+   "mode": "100755",
+   "class": "qwen-product",
+   "permitted_change": "canonical release/bootstrap URL github.com/antst/sessionbus-peers -> github.com/sessionbus/qwen-peer only (if a canonical URL is repointed)",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "scripts/install-qwen.sh"
+   }
+  },
+  {
+   "path": "scripts/release/install-product",
+   "sha256": "036bc6fb761bb8c09030a4a45f5f2b36d24875515278daeca2295361fb6f63c3",
+   "git_blob": "e3bb2ac78602443d12ab8f491123c2d29c785b04",
+   "mode": "100755",
+   "class": "shared-installer",
+   "permitted_change": "non-Qwen ROLE case arms removed; Qwen arm and shared preamble byte-identical",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "scripts/release/install-product"
+   }
+  },
+  {
+   "path": "wrappers/host/endpoint.go",
+   "sha256": "dada1a15bdf425e18e844d67e609b446d22622d5ca7c81b24aeb23a9a2fca832",
+   "git_blob": "41c9766efc10dbfabf3719c8082c08539d746aa1",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/endpoint.go"
+   }
+  },
+  {
+   "path": "wrappers/host/endpoint_test.go",
+   "sha256": "9ec9fe16cc432a6e2feda44a65dcf7086fd58117afc84fae4e7e7f26cffa2a9e",
+   "git_blob": "299f437249ad46a867d8419a001acac6ae238a45",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestPrivateEndpointBridgeCancel",
+    "TestPrivateEndpointReplacesStalePath"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/endpoint_test.go"
+   }
+  },
+  {
+   "path": "wrappers/host/handoff.go",
+   "sha256": "8385aa6586d3c66a21220ea360e94b51191a9c221e217a929fe9628155026a92",
+   "git_blob": "56218b2864778817c2ff2b060e8f2c85c72bf103",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/handoff.go"
+   }
+  },
+  {
+   "path": "wrappers/host/handoff_test.go",
+   "sha256": "eb32e0ecab777c3dba61957283bc2682f69d59c73b39f1f0f2377761d404a183",
+   "git_blob": "e24850651da06964cd368d646985a1d79122ab0d",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestHandoffDeliveryAndQueueCommit",
+    "TestHandoffFailedCreationKeepsFullQueue",
+    "TestHandoffFailedCreationRestoresPendingDelivery",
+    "TestHandoffFailedCreationPreservesAdmissionOrder",
+    "TestHandoffClaimAndFinish",
+    "TestHandoffClaimableDeliveryReportsQueuedAcrossTerminal",
+    "TestHandoffSDKInterruptCrossings"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/handoff_test.go"
+   }
+  },
+  {
+   "path": "wrappers/host/launch.go",
+   "sha256": "02c82ac348716cab696449539804c754e0b082302f6c652bcd54cfdb3161c8f9",
+   "git_blob": "0a1566c99ac1b5ec2c8822e63783d085e505f1da",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/launch.go"
+   }
+  },
+  {
+   "path": "wrappers/host/launch_test.go",
+   "sha256": "266be8c8599bab982a46a69652f46e1433558ba89b966db1f25bdeac8700dff4",
+   "git_blob": "0f2e983a3ba59bb3971dd1807ff546b54940b915",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestLaneModeUsesTokenPresence",
+    "TestLaunchTokenDigestLength",
+    "TestInteractivePlan",
+    "TestInteractivePlanErrors",
+    "TestClassifiedInteractivePlanDefersProjectionErrors",
+    "TestBuildArgumentsTable",
+    "TestChildOwnershipTable",
+    "TestOwnedChildHelper",
+    "TestChildCloseIgnoresStoppedProcessNoise",
+    "TestChildOutputDrainsAfterExit"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/launch_test.go"
+   }
+  },
+  {
+   "path": "wrappers/host/lock.go",
+   "sha256": "84159d31dc79d3a506d532e35cbe1cfdf99ea5e74784bacbff84221c6c0e5d12",
+   "git_blob": "9e31828c1ef4e02cd36d66a6f71705a035903fed",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/lock.go"
+   }
+  },
+  {
+   "path": "wrappers/host/lock_test.go",
+   "sha256": "8a252811f328812037f66403e7735716f4806ac4ef420734127a93561dc30d97",
+   "git_blob": "1e2e1053c527451965954653bc8a0b563db81c5b",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestSessionLockStaleFileAndContention",
+    "TestSessionLockRenamePreservesClaim",
+    "TestSessionLockOrderlyCloseAllowsResume",
+    "TestSessionLockRenameRecoversCrashStaleTarget",
+    "TestSessionLockRenameRetriesInodeMismatch",
+    "TestSessionLockRenamePreservesRecreatedTarget",
+    "TestSessionLockRenameDoesNotReplaceHolder"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/lock_test.go"
+   }
+  },
+  {
+   "path": "wrappers/host/not_running.go",
+   "sha256": "65dd0e7a37acec2da346627869309af268d6c5b68b5452a586d5bf1e240e9f5d",
+   "git_blob": "e62a0158d4f28d01f3c21183fe1e5022eb810482",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/not_running.go"
+   }
+  },
+  {
+   "path": "wrappers/host/render.go",
+   "sha256": "5825cf7f4f178393f1c424a647fe716a236df65484ff00456684f7c75110a4bf",
+   "git_blob": "df5de0b77e76d0c5b69395c486fb1779ec6ae3f5",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/render.go"
+   }
+  },
+  {
+   "path": "wrappers/host/render_test.go",
+   "sha256": "afe8e1a16480c62217049e42e209c1bd7f8bf7174b34232179bc994dcc637d22",
+   "git_blob": "cd8a200676d5eda8577d2cd7696928939218a2ea",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestRendererMatchesC5Fixture"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/render_test.go"
+   }
+  },
+  {
+   "path": "wrappers/host/testdata/native-message-envelope.json",
+   "sha256": "3b6fd04eb1d829f0e5313e350e624ebc27cd2e1e86286a68e395dd731e6d46bf",
+   "git_blob": "3b16a853d38d0aa45d874a038498b950000fb24b",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "host/testdata/native-message-envelope.json"
+   }
+  },
+  {
+   "path": "wrappers/mcp/SESSIONBUS.md",
+   "sha256": "ff6fe51ed21e1350845bd111fc6686774e1529409c80da7eff43b0987ba621e9",
+   "git_blob": "58d04d81c5da4d51721b43db2170c5b6804cca5e",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/SESSIONBUS.md"
+   }
+  },
+  {
+   "path": "wrappers/mcp/lane.go",
+   "sha256": "8b04b2461decde1b1ae0d82bdc2ec78f2f7565cbbcd958c3476bbb1f59a444f5",
+   "git_blob": "a8886f4611d8914928405c78f159be5a2bac2010",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/lane.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/lane_test.go",
+   "sha256": "e7445ffaed03a51edd3e40439f70da2d407097f2b5af36c3542f57522298a139",
+   "git_blob": "66dc1f002f96ac1333adc06eb8474fa6bace6311",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestLaneBackendCrossingCallsAndErrors",
+    "TestLaneBackendRequiresSocket",
+    "TestPrivateActionKeepsCallerInResidentServer",
+    "TestPrivateActionPreservesWorkerCollectionError",
+    "TestServeLaneJoinsAdmittedActions"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/lane_test.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/self_info_test.go",
+   "sha256": "1d74e4cc9cacd08dc3423cb8b8a1164159c2fd38cb6402421f31617ab15d7e06",
+   "git_blob": "073130230403e5ba252163908967176ac1eee19a",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestListSelfInfoSurvivesCallerAndNativeToolResponse"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/self_info_test.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/send_test.go",
+   "sha256": "fc02016425eb1383b3d084f83f9edbca5e226c4448ff52de2ccb6bc68725177c",
+   "git_blob": "60802795e39d7ab9c8e583307549e90a9fa0b94d",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestSendRejectsUnknownSummaryBeforeDispatch",
+    "TestAdvertisedArgumentsMatchPublicActionFieldUnion"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/send_test.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/server.go",
+   "sha256": "edf6a6e468b1be8296f285a0dac29bfb8c753792b76f90397bb0602267e264d3",
+   "git_blob": "f0ed6b8c6e849a20c599963c4943eb407c1df88e",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/server.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/server_test.go",
+   "sha256": "21b0d44c7d38cc8c26fda0073524b84426a8ecc2ea3ad5a52dcc8e4c484cfa0c",
+   "git_blob": "d3e17072971e004f26405fb06927b1e4f23a4993",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestServerMethods",
+    "TestInvalidRequests",
+    "TestToolArgumentsMustBeObject",
+    "TestServerUsesBackendCallerAfterPrepare",
+    "TestServerUsesStatelessActionBackend",
+    "TestServerReturnsOutputFailure",
+    "TestServerCancelWithStoppedOutput"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/server_test.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/sessionbus.go",
+   "sha256": "f7fe0a847a5fb58b005c61c86d97f83010866b11d407b458421ce63605c49cb7",
+   "git_blob": "926ed7bdd5f377158fcf6292b8f95fe1ff46203d",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/sessionbus.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/sessionbus_bounds_test.go",
+   "sha256": "e59d02ed325197568fa9c9daa7c1f72b197b69b1b7074000f9ba8b577c2402c5",
+   "git_blob": "3fba5851239e464f4b47f33d97f936f969cf7492",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestMCPBlockedResponsesDoNotHoldEOF",
+    "TestMCPBlockedOSPipeWriteJoinsOnEOF",
+    "TestMCPInitializedOnlyAfterSuccessfulWrite",
+    "TestMCPResponseWorkAndRetainedInputLimits",
+    "TestMCPReturnedPayloadBudgetStopsBlockedResponses",
+    "TestMCPFrameAndEscapedResultBounds",
+    "TestMCPCompletedActionDoesNotWriteAfterEOF",
+    "TestMCPResponseReservationsReleaseAndIDsCanBeReused",
+    "TestMCPOversizedPayloadStopsWithoutOutput",
+    "TestMCPCancelledCallsReleaseWorkWithoutReplies"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/sessionbus_bounds_test.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/sessionbus_test.go",
+   "sha256": "411caa0d710203944f75bd83002f11a36f929333beb854e5bbc4ae4fb9ac62ed",
+   "git_blob": "2286a88aed2a5952ce07ba65174d990aae401819",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestSessionbusNativeReportsAreExplicitAndHidden",
+    "TestSessionbusReportCannotShadowPublicTool",
+    "TestSessionbusMetadataIsPerNativeRequest",
+    "TestInactiveMCPStaysUntilEOFAndAdvertisesNothing"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/sessionbus_test.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/sessionbus_tools.go",
+   "sha256": "7c553b1ad6f8abf3c3da72417d1bf771b98cc31614cbe96aa2b9564da27f5924",
+   "git_blob": "2113cf19522f661bfec41f9e578ac23772455cd6",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/sessionbus_tools.go"
+   }
+  },
+  {
+   "path": "wrappers/mcp/trace_policy_test.go",
+   "sha256": "98f71c86987892c98f4dcdb02fd2c4cc1cf96f024b60328ac342281334f30875",
+   "git_blob": "c34073b1d148cc08d6cfd69758784dfd9cca6ec8",
+   "mode": "100644",
+   "class": "peer-common",
+   "permitted_change": "exact peer-common copy; Go import relocation and gofmt only",
+   "test_functions": [
+    "TestSpawnResultTraceSurvivesSDKAndMCP"
+   ],
+   "current_location": {
+    "repository": "sessionbus/peer-common",
+    "commit": "eb655f686e4456a4c1121054763318e3d27e89b0",
+    "path": "mcp/trace_policy_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/acp.go",
+   "sha256": "3ff8e88b31c9a0a65ef5a8734b36dbb6e4cd42f82cb516abdf21e849f67e9ef8",
+   "git_blob": "4de51cd7107d9ab18e9de4108530cc4c080432c4",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/acp.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/acp_test.go",
+   "sha256": "d5719ba6d016514543cfdea718a4bf3bb56df9d5bb06256027d9baecd94f2688",
+   "git_blob": "d3128609bfed1b225f3482dd98431416ff8be418",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestACPPrecancelDoesNotWrite",
+    "TestACPCancelDrainsLateReplyBeforeNextCall",
+    "TestACPObserverPrecedesBufferedNotification",
+    "TestACPBlockedNativeResponseDoesNotBlockEOF",
+    "TestACPNullRequestIDFailsWithoutDispatch",
+    "TestACPInputFrameBound",
+    "TestACPCancelledCorrelationsRetainCapacity",
+    "TestACPAttemptedWriteCancellationClosesAndJoins",
+    "TestACPNativeRequestBytesBoundBeforeWorkSlots"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/acp_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/arguments.go",
+   "sha256": "23548fb4f77a2adae84954903108fedf23076736d76f7c63f379c3786ba6fdc8",
+   "git_blob": "aa8641e17b5ae2f44c2499b5e734a3b6ddcf3f2e",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/arguments.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/arguments_test.go",
+   "sha256": "008f347bc874a7fa50a886802e8c800283cd7105b2ee3ce4d5329de2df4984e3",
+   "git_blob": "b158087b03a222a533aa3977fa703bea7581e254",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestManagedQwenArgumentsPreserveAdditiveNativePolicy",
+    "TestManagedQwenArgumentsRejectDirectDisable",
+    "TestManagedQwenGrantAndYoloCoexistInBothModes",
+    "TestManagedQwenGrantPreservesInteractivePositionalsAndBoundary",
+    "TestManagedQwenLaunchesRejectDirectDisableBeforeStart"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/arguments_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/delivery.go",
+   "sha256": "3989b9a029ff119e17e16ab6876a3091554238f4c8687209642a20713a17b404",
+   "git_blob": "6c51199b11e91a68362fe34c5ed0c5210510ff18",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/delivery.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/forward_stdio.go",
+   "sha256": "de6a1312a00aabf42119a0ddfde1f478c8b1867181610ee15648201343893477",
+   "git_blob": "0845f0719cca2ef06ea97e3cf62ae972388be4ed",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/forward_stdio.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/forward_stdio_test.go",
+   "sha256": "34f0d7f31104980c19f5174d5c03cf3887377d50442bd45ea466ca859dc5a2a0",
+   "git_blob": "4cdca67ba0ecd0303aaf08816d4c5a17d5959bbe",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestForwardInheritedStdioChild",
+    "TestForwardInheritedStdinJoinsOnTERM",
+    "TestForwardFileSetupFailuresCloseOwnedDescriptors",
+    "TestPollableForwardOutputCloseJoinsBlockedWrite",
+    "TestForwardCloseClassificationKeepsIndependentCauses"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/forward_stdio_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_config.go",
+   "sha256": "49176967abcce5fc7a22c42eaf70e596723099f87245ce5ffd7019f90c67ec3f",
+   "git_blob": "d856151c09fed5df941911d571eda4a9da0ce74b",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_config.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_config_test.go",
+   "sha256": "6735b8b381bac08fe71dc3fe16c738b40561d341cd4cd1bad6503d6b7a84745b",
+   "git_blob": "3f7072f67a88cf0dd7bdd5b40971d8535f23b685",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInteractiveMCPCompositionKeepsNativePositionAndRawFields",
+    "TestInteractiveMCPFileCommentsAndFilePriority",
+    "TestInteractiveMCPAbsentAndNativeBoundary",
+    "TestInteractiveMCPConflictsInvalidAndBounds"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_config_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_events.go",
+   "sha256": "959dd1a7acfa5c804bd860fe52e0c57dd3271c69e4d4880c5ee987fd6bfdec0d",
+   "git_blob": "42604e2b67c3e7a89f94229fdf193b2d3d68b9c2",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_events.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_events_test.go",
+   "sha256": "a49750242a5efd6933734ff62d4c06705e33876c63c1895e1bb17c8bbc8ffe5e",
+   "git_blob": "1e0c3b7684e9cac096781738f16d41519b915604",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestNativeFIFOReaderBeforeWriterAndJoinedCancellation",
+    "TestNativeFIFOOnlyInitialIdentityAndNoOutputStorage"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_events_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_launch.go",
+   "sha256": "9574d0787de4801d82af0990b00ffd52cf9d5da5cd32079d752652eba9681934",
+   "git_blob": "5bb25acc824dabc7c882130c5527bf80a897bf90",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_launch.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_lifetime_test.go",
+   "sha256": "44b014a26e3484f07cdd287cf2881fb1987d349bf36d97197fea6375ae75a079",
+   "git_blob": "5dd87d59ee20725605743c0e9c522edf176eadd2",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInteractiveNativeParentLossSettlesBindingAndBlockedHello",
+    "TestInteractiveBindingRejectsForeignAncestryAndRegistry",
+    "TestInteractiveRecordsBoundIncompleteInput",
+    "TestInteractiveOwnerClaimAllowsOnlyOneAttempt",
+    "TestInteractiveWatcherDistinguishesLauncherDeath"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_lifetime_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_name.go",
+   "sha256": "e320a93c48f98466084e0c86d2ebe6e11640f4766a9f93c6231f3e7c1fc8f0ee",
+   "git_blob": "85f8793f7ab1ef9866833f07bf48ba02743ed24e",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_name.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_name_test.go",
+   "sha256": "5634932b06b14412aa7a753c4f92d1806f05a49b8fd7186eb2a1295e13841ad6",
+   "git_blob": "d7fa2628025d3d491dfa8c27bfb5c26955a0d2ee",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInteractiveInitialNameNativeNormalizationAndLimit",
+    "TestInteractiveNativeOwnedAliases"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_name_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_owner.go",
+   "sha256": "856e24c6ed1cc7f065972d6180b730b93ed400a8c1e38c6edceeea11a2b5510a",
+   "git_blob": "3aedd2dca5c777a8aae1ef0fe03523021b0e868c",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_owner.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_owner_test.go",
+   "sha256": "9463844507dde24dd662732385846684929f78192e46fd20aa48489bc4ffd933",
+   "git_blob": "0180154a19d4ad793133d89138f0272bf3deb4fa",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInteractiveOwnerNativeGateRenameAndLiveBlankTitle",
+    "TestNativeRecordsKeepPartialAndFreezeInitialIdentity",
+    "TestNativeManualTitleEmptyAndForeignRecords",
+    "TestInteractivePlanPreservesNativeSelectorsAndOwnedGroups",
+    "TestInteractiveAppendReportsOnlyWrittenBytes"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_owner_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_package_test.go",
+   "sha256": "097cba09943edb22a812b2d459290397385354545cbb5d870a0360cc8a8fe682",
+   "git_blob": "4b22a7f4db7166f5776f513f457ace4ad4d281d6",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInteractivePublicNativeFixture"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_package_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_process.go",
+   "sha256": "db33eefa0ed9c9588e7e8d784e46308d4df11ca0af93126e6dff29a9f0ee4dce",
+   "git_blob": "da58bd6f46126970ab472e0e3c026cede86e55fc",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_process.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_process_darwin.go",
+   "sha256": "b3acc6c90eee8359e149970a1c1678c34f258071b849f6cd2bc6b9e325b489da",
+   "git_blob": "107c11d6ebde69a36e13f17a55143985175a3ab7",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_process_darwin.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_process_linux.go",
+   "sha256": "75e9ee672d8c71fb0351ea8d8ae1ed748786de6a08187edee9d4d79f66d2110e",
+   "git_blob": "a27d601bea8bed98a5bb3e6bcb193343dd04b6f8",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_process_linux.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_reconnect_test.go",
+   "sha256": "10b9518c9ed0288c24cfe136ba0c60e56119a488906545f648e8aa874f58305d",
+   "git_blob": "ade66177eea340163ded7ab843b580b388c46cde",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInteractiveReconnectInitialDaemonAbsent",
+    "TestInteractiveReconnectUsesLatestNativeTitle",
+    "TestInteractiveReconnectDoesNotReplayLostCall",
+    "TestInteractiveReconnectEndJoinsAttempts",
+    "TestInteractiveReconnectTerminalSuperseded",
+    "TestInteractiveReconnectIdleEOFKeepsMCP",
+    "TestInteractiveReconnectCancelsOldDelivery",
+    "TestInteractiveReconnectCanceledHelloCannotPublish",
+    "TestInteractiveReconnectRenameACKKeepsDeliveryAdmission",
+    "TestInteractiveReconnectChangedIdentityRevokesAdmission"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_reconnect_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_records.go",
+   "sha256": "6ba066e01d9dc874f7606ac2377c7baf8ff12ab7a26fa8ade907fa19fadb3a0e",
+   "git_blob": "2ad83fb26903e60e14b102cc1f1006c1da21fe2a",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_records.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_registry_darwin_test.go",
+   "sha256": "b90e0e76b9ff8c68ce8de4f0e192e6125f60fe27171aa7f3a42ce04a7bec4946",
+   "git_blob": "d68489515d7371b215204f8a2f1a47430cf3ab2b",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_registry_darwin_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_registry_linux_test.go",
+   "sha256": "4e1a35a6233f95a10311f6e0afe2ea1ff71917bdfb8abdb345d56bbfc5cfb93d",
+   "git_blob": "eb420947db0be6fef4ab02cc11020f4c001d1ae2",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_registry_linux_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_watch_darwin.go",
+   "sha256": "e44e08c02f96200b62ae9edf3d31231000c8a40848ac6e1a37dd19defc63c488",
+   "git_blob": "602d048250ff82990e6bd31240a60c871e44a9cd",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_watch_darwin.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/interactive_watch_linux.go",
+   "sha256": "258c0294d31e5c562b260cf274a8bc8ccd105f7cf4137fc399ec17bc24732a3a",
+   "git_blob": "5f3d587b5a3ab20446bad9fc035108db9c79dda5",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/interactive_watch_linux.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/lane_endpoint.go",
+   "sha256": "33719bcd2901aa722ea82d90119d40e66620a2e431d0d87f40200e863a02c488",
+   "git_blob": "ac93ea8fb960a653d3e2e0ac84d01f3907ddf160",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/lane_endpoint.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/lane_endpoint_test.go",
+   "sha256": "a678ab17ec72876ae1f9ec4fa19d44e62f972293f876969715dc7e23b2878052",
+   "git_blob": "c3b7736db70e278984e678e0960188c59b35c8c0",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestLaneEndpointInitializeIdentityMetadataAndEOF",
+    "TestStatelessLaneForwarderClosesOnInputEOF"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/lane_endpoint_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/package.go",
+   "sha256": "a9b93b54593d30507d4775e7b1fc100a79fac0bfa90dd8fb4483f449e32c9478",
+   "git_blob": "adfe0cbf2a19a6f4b5569086a389b2711f1b9611",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/package.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/package_archive_test.go",
+   "sha256": "14461d8dcf28e4b8b233d3d028e7d381cbac175fc9aa736bf72dc20957f4014e",
+   "git_blob": "7b2e29641476aedb867c2bc9f1de433c6774ab67",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestPackageInstallAndPrivateEntryUseOneBinary"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/package_archive_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/package_test.go",
+   "sha256": "3783fdd4898838645c7c983efeff3d6541589985d7e0097f24e893ee8d6c0c00",
+   "git_blob": "6c5ff2041c4fc37c2cf5ebd26e2820ef7308d9b2",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInstalledMCPExecutableFollowsPublicLinkAndKeepsPrivateBasename"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/package_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/peer.go",
+   "sha256": "5f28f68ed0f65fd52549e52e6d6300a826cf126fdbbbbb30534cfd02e2f38721",
+   "git_blob": "8022562939107b03697cbb6eb40be3760a41aeaa",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/peer.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/peer_test.go",
+   "sha256": "b8af8d719a6d6609457ed43f2e2231aa530cfed08e016ca14a696de091bdca2f",
+   "git_blob": "277488afa28d55b98e1aa1e39138b77e500a4698",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestInteractivePlanDoesNotConsumeGroupAfterBooleanOrOptionalValue",
+    "TestInteractiveNativePassthroughWithoutManagedEnvironment"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/peer_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/qwen.go",
+   "sha256": "81c45bf1f87f59a7b78bb8bb2a67f1b57198fb455d6a3aba27f516c2fab81b0c",
+   "git_blob": "3f7b378452f38d8721ee7db506e7f3359ecbb0dd",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/qwen.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/qwen_test.go",
+   "sha256": "947c5361554ee0c75c112626a47e037141fa2339c5afba06831dc441484f0c8b",
+   "git_blob": "8230aff654707e2a3f7bd597acee2e76b97b6258",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestMain",
+    "TestAbnormalRunCarriesNothingIntoReopen",
+    "TestAbnormalExitRetiresRunBeforeShutdownWithBackgroundHeld",
+    "TestFreshOpenAdoptsNativeIDAndRenames",
+    "TestOpenValueAndArgumentErrors",
+    "TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv",
+    "TestCompletedOpenOutlivesOperationCancellation",
+    "TestNativeOpenWithoutMCPInitializationCannotBecomeReady"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/qwen_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/review_config_test.go",
+   "sha256": "ccba7295956ffbcc03a1d4c1802b663ad15d328b43dce7b8ba6590ce3c9d4b29",
+   "git_blob": "f7d98fddfaefb394e70a8ace5df11871c2f9f85c",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestReviewEmptyNativeConfig",
+    "TestReviewBareCRDoesNotEndNativeLineComment"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/review_config_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/review_initial_name_test.go",
+   "sha256": "1091fedceb1d198eda109fa4824397dece29ed92117980e1c51c4a524a56f256",
+   "git_blob": "d32ea8d1d17bab10befc2c2714ebfd8daca13c41",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestReviewInitialNameCannotSelectNativeAutoRename"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/review_initial_name_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/review_recording_alias_test.go",
+   "sha256": "3abad998abfd00f194c3c505f2c66c5df5d4f8b590f8e0b1bef75890f598af51",
+   "git_blob": "80404b818dae77cb18a13c1a89f66a21db85a2ae",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestReviewNativeRecordingAliasesCannotBypassRequiredRecording"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/review_recording_alias_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/run.go",
+   "sha256": "4ab4268513dc278ba5f58ec97ff1cad739b2af5ba5083a9a05641d00e4bd2a7b",
+   "git_blob": "1bcd39eb610ed2d8c3d5668962bf9634d4374ffd",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/run.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/run_test.go",
+   "sha256": "3e278762216f8b2d9065bcae0b47711597ad7eaa97adc8ddd0992e08808d371f",
+   "git_blob": "5418ff84bf790d76b6b7ad8e0a3362c7049a7498",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestWorkerSeedWrittenBeforeTerminalAndNonconsumingCursor",
+    "TestWorkerTerminalWhileSeedReceiptHeld",
+    "TestWorkerActiveDeliveryRefusesBeforeNativeDrain",
+    "TestWorkerCancelAndTerminalBothOrdersHealthyNext",
+    "TestWorkerIdleDeliveryIsNotSubmitted"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/run_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/session_update_test.go",
+   "sha256": "23ff59fbb0ef8010fafbc86ca8ef707cef7a7a0d44fe9f69fa8077cda6e2639a",
+   "git_blob": "4eae28d75581dc63ec2dc0ec9d4a0caa42c880d9",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestWorkerNativeToolUpdatesPreservePromptResult",
+    "TestWorkerMalformedAnswerUpdateFails",
+    "TestWorkerAnswerUpdatesStayWithinOwnedPromptAndBound"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/session_update_test.go"
+   }
+  },
+  {
+   "path": "wrappers/qwen/testdata/qwen-0.23.0-resume-result.jsonl",
+   "sha256": "c954e9cfaf104bfbf7322ec50a939f1cd5680f3baef52aab8e1ea8a956c72ade",
+   "git_blob": "12b29519a2c6fc8f2e8f7f3746212bc864373235",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "byte-identical, except deletion-induced relative links repointed to immutable baseline source",
+   "test_functions": [],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/testdata/qwen-0.23.0-resume-result.jsonl"
+   }
+  },
+  {
+   "path": "wrappers/qwen/watch_test.go",
+   "sha256": "689b0ab8ea6fbe534c0298ff56ab4cac021e63a7ca2744ee1630def7b19b0552",
+   "git_blob": "0e939ba16e805cd7f2001d35c95687ce56bdbbee",
+   "mode": "100644",
+   "class": "qwen-product",
+   "permitted_change": "Go module import relocation and gofmt import ordering only",
+   "test_functions": [
+    "TestWatchDrainsTerminalAfterChildExit"
+   ],
+   "current_location": {
+    "repository": "sessionbus/qwen-peer",
+    "path": "wrappers/qwen/watch_test.go"
+   }
+  }
+ ],
+ "inventory_correction": "The held-reference permitted_change text said Grok; its path and hash identify the Qwen lane reference. Only this wording was corrected."
+}
