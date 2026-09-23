@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
+	"github.com/sessionbus/peer-common/testsocket"
 	"golang.org/x/sys/unix"
 )
 

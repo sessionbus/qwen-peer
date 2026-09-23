@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 func TestLaneEndpointInitializeIdentityMetadataAndEOF(t *testing.T) {

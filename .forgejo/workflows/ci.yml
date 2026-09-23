@@ -14,27 +14,18 @@ jobs:
         with:
           go-version: '1.24.x'
           cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Peers and product gates
+      - name: Qwen gates
         env:
           GOWORK: 'off'
         run: |
           test -z "$(gofmt -l .)"
           go mod download
-          go build ./cmd/...
+          go build -o "$RUNNER_TEMP/qwen-peer" ./cmd/qwen-peer
           go test ./...
           go test -race ./...
           go vet ./...
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
           golangci-lint run ./...
-          npm ci --prefix claude --ignore-scripts
-          npm test --prefix claude
-          (cd claude && npm pack --dry-run --json)
-          ./scripts/test-codex-mcp
-          npm install --prefix opencode --ignore-scripts --no-package-lock
-          npm test --prefix opencode
       - name: Workflow guard
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
@@ -62,4 +53,4 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: '0'
-        run: go build ./cmd/...
+        run: go build -o "$RUNNER_TEMP/qwen-peer" ./cmd/qwen-peer

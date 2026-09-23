@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
-	"github.com/antst/sessionbus-peers/wrappers/host"
 	sessionkit "github.com/antst/sessionbus/bus/sdk/go"
+	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 const fixtureID = "11111111-2222-4333-8444-555555555555"

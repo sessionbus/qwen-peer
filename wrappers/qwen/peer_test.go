@@ -2,7 +2,7 @@
 package qwen
 
 import (
-	"github.com/antst/sessionbus-peers/wrappers/host"
+	"github.com/sessionbus/peer-common/host"
 	"reflect"
 	"testing"
 )

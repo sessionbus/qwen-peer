@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/antst/sessionbus-peers/wrappers/host"
-	"github.com/antst/sessionbus-peers/wrappers/mcp"
+	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/peer-common/mcp"
 )
 
 const PrivateAlias = "qwen-peer-mcp"

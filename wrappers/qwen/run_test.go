@@ -13,9 +13,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/antst/sessionbus-peers/internal/testsocket"
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 type controlledLane struct {
