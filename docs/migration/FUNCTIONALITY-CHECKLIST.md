@@ -2,13 +2,15 @@
 
 Baseline: original peers main `710e5d33369cba4fb9468cd24fea0fe844a0219d`.
 F01–F20 are the shared migration requirement IDs. Extraction source preservation
-and fresh installed behavior are separate evidence. Current status: source
-preparation; permanent installation and fresh acceptance remain pending.
+and fresh installed behavior are separate evidence. Source extraction is
+reviewed, PR #1's four hosted checks pass, and the permanent install is
+complete and idempotent. Fresh default managed-idle wake remains incomplete;
+the other wake surfaces remain untested on the extracted installation.
 
 | ID | Preserved functionality | Existing regression coverage | Installed evidence / limit |
 |---|---|---|---|
-| F01 | Complete archive install/update, extension and generic skill, private `qwen-peer-mcp` alias, checksum and archive-role safety | `package_archive_test.go`; release install/download/selection tests | Install/reinstall exact archive in real home; verify native extension and alias, owned payload only |
-| F02 | One public binary, wrapper/native version and token-selected lane dispatch | `cmd/qwen-peer/main_test.go`; `version_test.go`; common peerversion | Exact installed source/version and private alias |
+| F01 | Complete archive install/update, extension and generic skill, private `qwen-peer-mcp` alias, checksum and archive-role safety | `package_archive_test.go`; release install/download/selection tests | Real-home install and idempotent reinstall of the exact `acd7c4c` archive passed; extension, plugin and aliases match the archive |
+| F02 | One public binary, wrapper/native version and token-selected lane dispatch | `cmd/qwen-peer/main_test.go`; `version_test.go`; common peerversion | Permanent binary/source bind to `acd7c4c`; native Qwen 0.24.3 is observation provenance |
 | F03 | Native argv order, literal `--`, group/name options, resume/continue/fork and `--yolo` | `arguments_test.go`; `interactive_config_test.go`; `interactive_name_test.go` | Preserve native selectors and title semantics; typed lane permission is separate |
 | F04 | Default native policy plus exact managed `--allowed-tools mcp__sessionbus__sessionbus`; reject conflicting excludes | `arguments_test.go`; `review_config_test.go` | No grant to Skill or unrelated tools; the unmerged `5c1126e` is excluded |
 | F05 | Ordinary Qwen stays ordinary: extension contains one skill, no global MCP manifest or helper | `package_test.go`; `package_archive_test.go` | Plain native launch exposes guidance only and no bus owner |
@@ -17,10 +19,10 @@ preparation; permanent installation and fresh acceptance remain pending.
 | F08 | Zero-input lane open/readiness and native session new/resume | `qwen_test.go`; `acp_test.go`; `run_test.go` | Readiness before model input; no fabricated native terminal |
 | F09 | Run/start/status/wait/ack and bounded result cursor | `run_test.go`; `qwen_test.go`; common lane tests | Collect actual native result before acknowledgement |
 | F10 | Parent lifetime, notification and direct-child tracing | common host/MCP tests; public SDK | Authority and scheduling remain daemon-owned |
-| F11 | Interactive idle inbound autonomous wake | `peer_test.go`; `interactive_events_test.go` | One inbound, native reply/final and no later harness input still need extracted-build test |
-| F12 | Interactive active admission during a native turn | `peer_test.go`; `interactive_events_test.go` | Preserve actual receipt and native turn chronology, not a substituted queued contract |
-| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | AUTO Skill-first wake QWK922E/F was denied; no completed reply/final claim |
-| F14 | Managed active delivery is deferred to daemon scheduling; no blocked native mid-turn drain | `run_test.go`; `lane_endpoint_test.go` | `queued_for_next_turn` is staging, not native consumption; no replay |
+| F11 | Interactive idle inbound autonomous wake | `peer_test.go`; `interactive_events_test.go` | Untested on the extracted permanent install; one inbound, native reply/final and no later harness input remain to be shown |
+| F12 | Interactive active admission during a native turn | `peer_test.go`; `interactive_events_test.go` | Untested on the extracted permanent install; preserve actual receipt and native turn chronology, not a substituted queued contract |
+| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | QWK923A/B each admitted one inbound, then native 0.24.3 AUTO denied a model-selected, non-granted Skill before any MCP call, reply or final; installed wake incomplete |
+| F14 | Managed active delivery is deferred to daemon scheduling; no blocked native mid-turn drain | `run_test.go`; `lane_endpoint_test.go` | Untested on the extracted permanent install; `queued_for_next_turn` is staging, not native consumption |
 | F15 | Interactive reconnect, latest identity, supersession terminal | `interactive_reconnect_test.go`; `interactive_lifetime_test.go` | No replay or worker resurrection after terminal loss |
 | F16 | Cancellation and protocol fidelity | `acp_test.go`; `forward_stdio_test.go`; `session_update_test.go` | Native and bus failure classes remain distinct |
 | F17 | Startup, failure, close, native death and owned cleanup | `interactive_owner_test.go`; `interactive_registry_linux_test.go`; `interactive_registry_darwin_test.go` | Exact owned rows/processes absent; abrupt launcher death remains qualified |
@@ -42,11 +44,23 @@ count includes the original `TestMain` harness.
   ordinary peer. A model-selected `sessionbus:sessionbus` Skill-first wake was
   denied under AUTO in QWK922E/F before any MCP send, reply or final. The Skill
   is guidance, not a prerequisite or an approved substitute for the exact tool.
-- Unique unmerged `5c1126e` is excluded. UMKA currently has that testing-only
-  build; installing this extraction reverts it. Its full signed history is
+- Unique unmerged `5c1126e` is excluded. The permanent `acd7c4c` install
+  replaced that testing-only build and passed an idempotent reinstall; dev2
+  independently cleared the installed archive, extension and alias binding.
+  The excluded commit's full signed history is
   preserved in `qwen-preservation-inventory-opus-20260923/archive-5c1126e`
   (SHA256 of archive `SHA256SUMS`:
   `c0d06ea8bf6b75bc68b2ca16ced679b14a70855bfbd0c8a83f33297e661f343d`).
+- Fresh QWK923A and QWK923B used the installed default managed lane with only
+  `mcp__sessionbus__sessionbus` granted. Both written inbound messages appear
+  in native history, but the model selected the non-granted `skill` tool and
+  native Qwen 0.24.3 AUTO denied it. Neither cell made an MCP call, sent a
+  reply or emitted the requested wake final. A's denial also cited its old
+  setup prohibition. B used the reviewed setup-only restraint; its denial no
+  longer cited that prohibition. Both original failures remain preserved.
+  These results do not show whether native AUTO would permit direct selection
+  of the granted MCP tool on 0.24.x. No bypass cell was run; bypass would not
+  substitute for default mode.
 - One fresh cell gets one send, no replay, and no post-inbound harness prompt,
   native input or lifecycle turn. Preserve first failures and actual receipts.
 - Native session switching remains limited to the launch's initial identity, as
@@ -56,6 +70,8 @@ count includes the original `TestMain` harness.
   be reproduced after shared MCP extraction without changing their ownership
   accounting.
 
-Completion requires protected-file/test normalization, source review, retained
-tests/race/vet/lint/packaging, an exact permanent install and fresh interactive
-and lane observations. A failed or incomplete native test remains a limit.
+Protected-file/test normalization, source review, retained tests/race/vet/lint/
+packaging and the exact permanent install are complete. Full behavioral
+completion still requires fresh interactive and lane observations. QWK923A/B
+remain incomplete wake evidence, and interactive idle/active and managed active
+remain untested on the extracted installation.

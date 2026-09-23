@@ -49,9 +49,10 @@ bundle, patch and signature evidence are preserved in
 `/home/antst/sessionbus-evidence/qwen-preservation-inventory-opus-20260923/archive-5c1126e`;
 the SHA256 of that archive's `SHA256SUMS` is
 `c0d06ea8bf6b75bc68b2ca16ced679b14a70855bfbd0c8a83f33297e661f343d`.
-UMKA currently runs that testing-only build; installing this baseline-derived
-extraction reverts it. QWK922F still denied the model-selected Skill under AUTO
-before MCP send, reply or final, so the commit is not a validated fix.
+The permanent `acd7c4c` installation has replaced that testing-only build;
+install and idempotent reinstall on the real home passed independent archive,
+extension and alias review. QWK922F denied the model-selected Skill under AUTO
+before MCP send, reply or final, so the excluded commit was not a validated fix.
 
 Direct MCP communication historically worked. QWK922E/F show that a
 model-selected Skill-first wake may be denied under AUTO; the Skill is guidance,
@@ -59,12 +60,39 @@ not a prerequisite. Both are incomplete wake evidence, not product-wide
 acceptance or proof that a direct MCP selection would fail. Any future Skill
 grant change needs separate review and fresh installed evidence.
 
-The organisation `qwen-peer` repository still has `develop` branch `183b8b5`,
-and the binary-release workflow publishes on a push to develop. Actions remain
-disabled; delete that branch or disable that workflow before enabling Actions.
-The release and native extension versions are unchanged, and publication is
-held. The original Codex repository's `install-qwen.sh`, pinned to final
-combined v0.5.3 assets, remains the working public compatibility installer
+## Source, installation and fresh behavior
+
+The reviewed `acd7c4c` extraction accounts for all 91 protected files and 146
+original test functions. PR #1's Linux, macOS, scan and workflow-guard checks
+pass. The permanent archive installation and idempotent reinstall are bound by
+`qwen-extraction-installed-dev1-20260923/BINDING.json` (packet seal
+`17000f41287b8b1246bfe79793189d965c91ba5c89e30ad133b13eee81ef92da`).
+It replaces testing-only `5c1126e`/binary `9fe201b9`; native Qwen 0.24.3 is
+provenance, not a compatibility restriction. This proves installed bytes and
+layout, not wake acceptance.
+
+Fresh default managed-idle QWK923A and QWK923B each completed setup and had
+one written inbound admitted as an ordinary native user message. Neither
+launch supplied a bypass or approval-mode override. The model
+selected the non-granted `skill` tool, and native Qwen 0.24.3 AUTO denied the
+cross-session action before any Sessionbus MCP call, reply or requested final.
+A's denial also cited its standing setup prohibition. B used a reviewed
+setup-only restraint and its denial did not cite that prohibition, so the
+fixture confounder was removed without completing the wake. The original A
+and B failure packets remain preserved at
+`qwen-wake-acceptance-live-dev1-20260923/cells-qwk923a` and `cells-qwk923b`
+(seals `1f77f999` and `6e4318b6`). The native direct-MCP selection path on
+0.24.x has not been tested, and these denials do not establish that the
+already-granted MCP tool would be denied. Interactive idle/active and managed
+active are untested and held, not failed. No bypass cell was run; bypass would
+not substitute for default-mode evidence.
+
+The old `develop` branch has been removed. The binary-release and package
+preview workflows remain manually disabled; PR #1's hosted checks ran without
+enabling either publishing path. The release and native extension versions are
+unchanged, and publication is held. The original Codex repository's
+`install-qwen.sh`, pinned to final combined v0.5.3 assets, remains the working
+public compatibility installer
 until an independent Qwen release exists. The new bootstrap fails closed before
 that release.
 
@@ -74,6 +102,7 @@ module split. Preserve the recorded values as history, not a fresh measurement.
 Native Qwen versions are not pinned; exact versions/hashes identify observations,
 not a compatibility allowlist.
 
-Local source and archive verification does not replace a permanent real-home
-install or fresh native acceptance. No UMKA install, model turn, config change,
-tag or release is part of this extraction preparation.
+Source and archive verification, permanent real-home installation, and fresh
+native wake behavior are separate evidence. The first two are complete; the
+default managed-idle wake remains incomplete. No extraction tag or release has
+been made.
