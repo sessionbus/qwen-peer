@@ -319,7 +319,11 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	server := cli["mcpServers"].(map[string]any)[managedQwenServer].(map[string]any)
 	check(t, len(cli["mcpServers"].(map[string]any)) == 1 && len(server["args"].([]any)) == 0, "extra or changed MCP server: %#v", cli)
 	check(t, server["alwaysLoadTools"] == true && server["trust"] == nil, "CLI MCP server = %#v", server)
-	check(t, server["command"] == filepath.Join(filepath.Dir(os.Args[0]), PrivateAlias), "CLI MCP executable = %#v", server["command"])
+	canonicalTestExecutable, err := filepath.EvalSymlinks(os.Args[0])
+	must(t, err)
+	canonicalTestExecutable, err = filepath.Abs(canonicalTestExecutable)
+	must(t, err)
+	check(t, server["command"] == filepath.Join(filepath.Dir(canonicalTestExecutable), PrivateAlias), "CLI MCP executable = %#v", server["command"])
 	check(t, server["env"].(map[string]any)[LaneEndpointEnv] == p.endpoint.Path, "CLI MCP endpoint = %#v", server["env"])
 	var defaults map[string]any
 	must(t, json.Unmarshal(mustRead(t, child[laneSystemDefaultsEnv].(string)), &defaults))
