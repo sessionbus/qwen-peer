@@ -99,7 +99,7 @@ func TestManagedLaneBareExtensionConflictOnly(t *testing.T) {
 		{"--bare", "--extensions=other,sessionbus"},
 	} {
 		_, err := launchArguments(sessionkit.OpenOptions{Arguments: arguments})
-		check(t, err != nil && strings.Contains(err.Error(), "--bare cannot select the sessionbus extension"), "args %#v: %v", arguments, err)
+		check(t, err != nil && strings.Contains(err.Error(), "managed Qwen --bare cannot select the sessionbus extension"), "args %#v: %v", arguments, err)
 	}
 	for _, arguments := range [][]string{
 		{"--bare"},

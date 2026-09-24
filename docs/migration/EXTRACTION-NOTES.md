@@ -106,10 +106,77 @@ observed during the run and removed after Close; owned cleanup passed. The
 original cell packet is
 `qwen-option-f-live-dev2-20260924/cells-qwk923c/qwen-lane-idle-qwk923c`
 (seal `53b93311`); independent review is retained in
-`qwen-f-review-records-opus-20260924` (seal `83d0c9b1`). The review record
+`qwen-f-review-records-opus-20260924` (seal `39448482`). The review record
 separately corrects the original outcome's process-scan sentence; the cell
-packet remains unchanged. Interactive idle/active and managed active remain
-untested and held, not failed. No bypass cell was run.
+packet remains unchanged. At that `bf6d0ea` checkpoint, interactive idle and
+active remained untested. QWQ924C later supplied an independently reviewed
+clean original managed-active PASS on the same build. No bypass cell was run.
+
+The reviewed interactive-visibility source at `2ba3e12` is complete, separate
+from installed behavior. Its permanent real-home installation replaced
+`bf6d0ea` with binary `0eb401e0`; post-install observations after two installs
+were byte-identical, and packet
+`qwen-interactive-option-f-installed-2ba3-dev2-20260924` (seal `6dfc48fd`)
+binds the archive, wrapper, extension and aliases in BINDING `c145d755` and
+observation `1909c885`. Native Qwen 0.24.3 is observed provenance, not an
+allowlist. The integrated interactive wrapper now supplies its native child
+the reviewed private defaults merge and wrapper-owned Sessionbus MCP entry
+with `alwaysLoadTools:true`. The child's descendants inherit the defaults
+path; plain `qwen` and the wrapper's own environment are unchanged. Other
+extensions, accepted args, grants and native approval modes remain in force.
+This is a conditional skill-visibility mechanism: native `.env` files or
+settings `env` entries can enable bare mode after the wrapper's inherited-env
+check, so the wrapper does not claim to cover every configuration source.
+Integrated interactive launches reject an explicit `-e sessionbus` combined
+with `--bare` or `--bare=true` before `--`, an exact `--bare` argv element
+after `--`, or truthy inherited `QWEN_CODE_SIMPLE`. After `--`, a single
+element merely containing `--bare` remains accepted; `--bare=x` and
+`--bare=TRUE` pass through unchanged. They also fail closed on unmergeable
+host defaults. These are new
+installed compatibility restrictions. A panic, SIGKILL or SIGHUP can leave the
+private interactive launch directory; handling SIGHUP as owned termination
+and testing descendant behavior remain a bounded lifecycle follow-up.
+
+On that installed build, managed idle QWK924R (cell `c153b1e0`, independent
+review `edc29e93`) and managed active QWQ924R (`a890ca68`, review `c2d90c03`)
+independently re-PASSed. Interactive idle QWI924E (`88d135f2`, review
+`0e53b88a`) is a clean original PASS under normal policy with one direct,
+explicitly successful MCP call, exact final, message-ID-joined
+operator-attested reply and owned cleanup. Its native-child capture records
+`skills.disabled:["sessionbus:sessionbus"]`, `alwaysLoadTools:true`, and bare
+mode false. The conclusion that the Skill was hidden is **inferred from the
+captured effective defaults (source-backed)**; no native Skill listing was
+directly recoverable. Host defaults were observed absent at install and in
+QWQ924R, QWI924E and QWI925A/B preflights; QWK924R did not re-observe absence
+at cell time, although its private defaults matched the fallback bytes. These
+observations do not test every merge case. QWI924A–D ran on the earlier
+`bf6d0ea` build (observation `ca33703d`) and retain their original FAILs.
+Root's later criterion correction accepts the pinned native `tool_call` bridge
+as granted MCP success for future interactive cells only; it did not relabel
+QWI924C. Interactive active QWI925A is an original FAIL caused by a harness
+projector timestamp defect, with no native failure in the raw history
+(`QWI925A-INDEPENDENT-CLASSIFICATION-opus.md`, SHA `26f4fed5`). QWI925B is
+an independently reviewed clean original PASS under the active gate (packet
+`6990b392`, review `bc41aa65`), so interactive active is accepted for the
+tested steady-state lifecycle. That named-launch fixture covers this lifecycle
+only: it launched without `-i`, waited for title confirmation and accepted
+`session.hello`, then started one ordinary turn with a single harness-authored
+`input.jsonl` submit and zero PTY writes. For a named launch, source-based
+reachability analysis predicts that an inbound during an initial `-i` turn
+before publication is rejected as `unknown_session`; no live cell tested that
+timing. The
+`written` receipt and queued PTY preview prove admission, not same-turn
+consumption. The gate accepts either a mid-turn steer or next-turn delivery;
+QWI925B's native history shows one `mid_turn_user_message` steer. Two
+successful informational `tool_search` calls selected nothing: the model
+searched an invented `mcp__plugin_qwen-code-dnd_…` name, then `sessionbus`,
+before using the directly loaded granted MCP tool. Each direct reply is
+operator-attested and joined by message ID, not a cryptographic receipt.
+QWI925B did not re-observe the earlier QWI925A watcher residue; its sealed
+packet's untouched-residue statement follows from path confinement. The
+0.24.4 update notice did not change the 0.24.3 post-cell observation
+`1909c885`; a later update is an identity event requiring a reviewed re-pin,
+not a product failure by itself.
 
 The old `develop` branch has been removed. The binary-release and package
 preview workflows remain manually disabled; PR #1's hosted checks ran without
@@ -127,7 +194,8 @@ Native Qwen versions are not pinned; exact versions/hashes identify observations
 not a compatibility allowlist.
 
 Source and archive verification, permanent real-home installation, and fresh
-native wake behavior are separate evidence. The first two are complete, and
-one fresh default managed-idle surface passed; the other three Qwen wake
-surfaces are untested and held. No extraction tag, release or version change
-has been made.
+native wake behavior are separate evidence. Source and installation are
+complete. Managed idle and active re-PASSed, interactive idle PASSed and
+interactive active PASSed once for the tested steady-state lifecycle under
+the new installed build. All four surfaces now have an accepted cell. No
+extraction tag, release or version change has been made.
