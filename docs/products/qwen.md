@@ -14,9 +14,10 @@
 > Close retires the worker without archiving native history. Interactive
 > in-process switching has an accepted initial-session attribution limitation
 > in both directions; see the package README and the
-> [current acceptance ledger](../designs/qwen-0.5.0/ACCEPTANCE.md). Ordinary
-> startup uses a skill-only extension; managed startup supplies its own native
-> MCP configuration. Historical evidence below is
+> [current acceptance ledger](../designs/qwen-0.5.0/ACCEPTANCE.md). Plain
+> `qwen` startup uses a skill-only extension; managed and integrated
+> `qwen-peer` interactive startup supply private native MCP configuration.
+> Historical evidence below is
 > retained as evidence of its cited versions, not the current implementation.
 
 > Mandatory-wake update (2026-09-21): the 0.24.1 ACP lane no longer uses its
@@ -26,10 +27,12 @@
 > drain. Lane delivery now returns NotRunning before local or native enqueue;
 > daemon v0.5.7 starts or schedules the original delivery as a managed Run, and
 > the native drain replies empty. The interactive `--input-file` submit carrier
-> is separate and retains its demonstrated idle-wake/active-join behavior. See
+> is separate and retains its historically demonstrated idle-wake/active-join
+> behavior (`68e0407`); current interactive-active acceptance is assessed
+> separately below. See
 > [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 
-> Managed-lane correction (installed 2026-09-24; merge and fail-closed rules
+> First managed-lane correction (installed 2026-09-24; merge and fail-closed rules
 > are source/test-verified; QWK923C ran with host defaults absent): the wrapper
 > writes a private system-defaults file that adds only `sessionbus:sessionbus` to
 > `skills.disabled`, while retaining all effective host system defaults. It
@@ -39,8 +42,9 @@
 > with `alwaysLoadTools: true`, so the already-granted
 > `mcp__sessionbus__sessionbus` tool can be shown directly. AUTO, the exact
 > allowed-tool grant, unrelated extensions and caller arguments remain in
-> force; the installed `bf6d0ea` interactive path does not use either private file. The files live
-> until the managed child exits and are removed on Close. The child and its
+> force; at the `bf6d0ea` checkpoint the interactive path did not use either
+> private file. The files live until the managed child exits and are removed
+> on Close. The child and its
 > descendants inherit the defaults-path environment variable. A panic or
 > SIGKILL can leave the private directory behind, as with the lane socket and
 > lock. The host defaults are preserved semantically, not byte-for-byte: JSON
@@ -67,51 +71,94 @@
 > surfaces were untested and held at that checkpoint. QWK923A/B remain
 > immutable original FAILs.
 > Evidence: QWK923C cell seal `53b93311` and independent review record
-> `qwen-f-review-records-opus-20260924` (`83d0c9b1`). The review record
+> `qwen-f-review-records-opus-20260924` (`39448482`). The review record
 > separately corrects the original cell outcome's process-scan wording; the
 > cell packet itself is unchanged. No tag, release or version changed.
 
-> Interactive visibility candidate at this source revision (not yet installed
-> or live-tested): `qwen-peer` interactive launches reuse the same fail-closed host
-> defaults merge in their existing private launch directory. The native child
+> Current interactive visibility build (source `2ba3e12`, binary `0eb401e0`,
+> installed 2026-09-24; install packet `6dfc48fd`, binding `c145d755`,
+> observation `1909c885`): `qwen-peer` interactive launches reuse the same
+> fail-closed host defaults merge in their existing private launch directory.
+> The native child
 > and its descendants inherit `QWEN_CODE_SYSTEM_DEFAULTS_PATH`; the wrapper's
 > own environment is unchanged. The wrapper-owned
 > `sessionbus` MCP entry gains `alwaysLoadTools: true`. The path and file are
 > removed when the child exits. Plain `qwen` and passthrough invocations retain
 > their original environment and arguments. Native approval mode, exact MCP
 > grant, other extensions and accepted caller arguments remain unchanged. As
-> with managed F, a bare interactive launch (`--bare`, an exact `--bare` argv
-> element after `--`, or truthy inherited `QWEN_CODE_SIMPLE`) may not explicitly
+> with managed F, a bare interactive launch (`--bare` or `--bare=true` before
+> `--`, an exact `--bare` argv element after `--`, or truthy inherited
+> `QWEN_CODE_SIMPLE`) may not explicitly
 > select `-e sessionbus`, because native bare mode would ignore the targeted
 > skill hide. Qwen 0.24.3 tests exact argv elements before parsing
 > (`packages/cli/src/llm.tsx:467`). Tokens after `--` remain in `argv._`
 > rather than binding to `[query..]`
 > (`commands/review/parse-args.ts:1363-1365`). A single argv element
-> `"text --bare"` is preserved; only an exact `--bare` element enables bare
-> mode. This is a new interactive
-> compatibility restriction.
+> `"text --bare"` is preserved; after `--`, only an exact `--bare` element
+> enables bare mode. `--bare=x` and `--bare=TRUE` pass through unchanged.
+> This is an installed interactive compatibility restriction.
 > Unmergeable host defaults also fail before native launch, where they
 > previously did not: `$version` other than 4, JSONC, unreadable files,
-> loops, directories and files over 1 MiB are examples. Source and tests
-> establish this candidate;
-> an installed build and a fresh interactive cell are still required to assess
-> communication under normal policy. A panic, SIGKILL or SIGHUP can leave the
-> private launch directory (`input.jsonl`, `events.fifo`,
+> loops, directories and files over 1 MiB are examples. Source and tests establish
+> those merge and fail-closed rules; the fresh cells below exercised the
+> host-defaults-absent path, not every compatibility edge. A panic, SIGKILL or
+> SIGHUP can leave the private launch directory (`input.jsonl`, `events.fifo`,
 > `system-defaults.json`) behind. A descendant that outlives the launcher
 > inherits a path to the removed defaults file. The conflict check sees
 > inherited `QWEN_CODE_SIMPLE`, but native `.env` or settings `env` entries
-> can enable bare mode after the wrapper's check; this inherited residual
+> can set `QWEN_CODE_SIMPLE` and enable bare mode after the wrapper's check;
+> Skill hiding therefore depends on the effective native configuration and
+> is not guaranteed for every configuration source. This inherited residual
 > applies to managed and interactive. Bounded lifecycle follow-up: handle
 > SIGHUP as owned termination, remove this one private directory, and test
 > signal/descendant behavior without changing native policy or input.
 
-> Later installed evidence at `bf6d0ea`: QWQ924C is a clean original default
-> managed-active pass (`QWQ924C-INDEPENDENT-RAW-REVIEW-opus.md`). QWI924C and
-> QWI924D remain original interactive-idle FAILs under their predeclared
-> criteria (`QWI924C-INDEPENDENT-CLASSIFICATION-opus.md` and
-> `QWI924D-INDEPENDENT-CLASSIFICATION-opus.md`). Interactive active remains
-> untested. The interactive visibility candidate above has not been installed
-> or exercised in a live cell.
+> Installed acceptance at `2ba3e12` is surface-specific. The managed-idle
+> QWK924R and managed-active QWQ924R regressions are independently reviewed
+> clean original passes, following QWK923C and QWQ924C on `bf6d0ea`.
+> Interactive-idle QWI924E is an independently reviewed clean original pass
+> under normal native policy: tool-free setup, one direct successful
+> `mcp__sessionbus__sessionbus` call, exact final and owned cleanup. Its
+> native-child capture records private defaults disabling only
+> `sessionbus:sessionbus`, an MCP entry with `alwaysLoadTools:true`, and
+> bare mode false. The Skill-hiding conclusion is **inferred from the captured
+> effective defaults (source-backed)**; a native Skill listing was not directly
+> recoverable. QWI924A–D ran on the earlier `bf6d0ea` build (observation
+> `ca33703d`) and remain their original FAILs. Root's later criterion
+> correction accepts a pinned native `tool_call` bridge as granted MCP success
+> for future interactive cells only; it does not relabel QWI924C.
+> Interactive-active QWI925A remains an original FAIL caused by a harness
+> projector timestamp defect; its raw native history showed no native failure.
+> QWI925B is an independently reviewed **clean original PASS** under the
+> predeclared active gate (review `bc41aa65`), so interactive active is accepted
+> for this tested steady-state lifecycle. The gate covers a named launch without
+> `-i`: title confirmation and accepted `session.hello` preceded reachability.
+> For named launches, source-based reachability analysis predicts that an
+> inbound during an initial `-i` turn before publication is rejected as
+> `unknown_session`; no live cell exercised that timing. A `written` receipt
+> and queued PTY preview prove admission,
+> not same-turn consumption. The gate accepts either a mid-turn steer or a
+> next-turn delivery; QWI925B's native history shows one
+> `mid_turn_user_message` steer. Before its direct granted MCP call, two
+> successful informational `tool_search` calls selected no tools: the model
+> searched an invented `mcp__plugin_qwen-code-dnd_…` name, then `sessionbus`.
+> Its raw packet is
+> `qwen-interactive-active-qwi925b-live-dev2-20260924` (seal `6990b392`).
+> Each direct reply is operator-attested and joined by message ID, not a
+> cryptographic receipt. Host system-defaults were observed absent at install
+> and in QWQ924R, QWI924E and QWI925A/B preflights. QWK924R did not re-observe
+> absence at cell time; its private defaults matched the fallback bytes. None
+> of these observations tests every host configuration. Evidence: managed
+> regressions QWK924R (`c153b1e0`,
+> independent review `edc29e93`) and QWQ924R (`a890ca68`, review `c2d90c03`);
+> QWI924E (`88d135f2`, review `0e53b88a`); QWI925A classification
+> `26f4fed5` and QWI925B packet `6990b392`/independent review `bc41aa65`.
+> The earlier QWI925A watcher residue was not re-observed in QWI925B; the
+> sealed QWI925B packet's untouched-residue claim follows from path
+> confinement, not a fresh host observation. A 0.24.4 update notice appeared,
+> but the post-cell observation still matched `1909c885` at 0.24.3. A later
+> native update calls for an identity observation and reviewed re-pin, not a
+> product-failure label.
 
 Flat fact list for Qwen Code as a Sessionbus product. No prose beyond facts.
 

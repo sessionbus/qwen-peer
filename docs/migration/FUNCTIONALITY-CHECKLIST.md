@@ -2,30 +2,35 @@
 
 Baseline: original peers main `710e5d33369cba4fb9468cd24fea0fe844a0219d`.
 F01–F20 are the shared migration requirement IDs. Extraction source preservation
-and fresh installed behavior are separate evidence. Source extraction is
-reviewed, PR #1's four hosted checks pass, and the permanent installs are
-complete and idempotent. The installed option F build passed default AUTO
-managed idle (QWK923C) and managed active (QWQ924C). Interactive idle QWI924C/D
-remain original predeclared failures; interactive active is untested and held.
-QWK923A/B remain original failures. This revision's interactive visibility
-change is source-tested only, pending review, install and a fresh cell.
+and fresh installed behavior are separate evidence. Source extraction and the
+interactive visibility implementation at `2ba3e12` are reviewed, and the
+permanent `2ba3e12`/`0eb401e0` install is idempotent (binding `c145d755`).
+Managed-idle QWK924R, managed-active QWQ924R and interactive-idle QWI924E
+are independently reviewed clean original passes on that build. Interactive
+active QWI925A remains an original FAIL caused by a harness projector defect,
+with no native failure; QWI925B is an independently reviewed clean original
+PASS for the tested steady-state lifecycle, so all four Qwen surfaces have
+one accepted cell on this build.
+QWK923A/B and QWI924A–D remain their original failures; QWI924A–D ran on
+the earlier `bf6d0ea` build (observation `ca33703d`). Source completion,
+installed binding and per-surface acceptance are separate conclusions.
 
 | ID | Preserved functionality | Existing regression coverage | Installed evidence / limit |
 |---|---|---|---|
-| F01 | Complete archive install/update, extension and generic skill, private `qwen-peer-mcp` alias, checksum and archive-role safety | `package_archive_test.go`; release install/download/selection tests | Real-home install and idempotent reinstall of `acd7c4c` passed; option F `bf6d0ea` then replaced it, with two idempotent installs and exact archive, extension, plugin and alias binding (`239621ab`, BINDING `32dc5cb2`) |
-| F02 | One public binary, wrapper/native version and token-selected lane dispatch | `cmd/qwen-peer/main_test.go`; `version_test.go`; common peerversion | Permanent binary/source bind to `bf6d0ea`/`6370f92e`; native Qwen 0.24.3 is observation provenance |
-| F03 | Native argv order, literal `--`, group/name options, resume/continue/fork and `--yolo` | `arguments_test.go`; `interactive_config_test.go`; `interactive_name_test.go`; `interactive_visibility_test.go` | Preserve native selectors and title semantics; typed lane permission is separate. New candidate restriction: integrated interactive launches reject an explicit `-e sessionbus` combined with bare mode from `--bare` (including an exact argv element after `--`) or truthy inherited `QWEN_CODE_SIMPLE`. Tokens after `--` remain in `argv._`, not `[query..]`; a single argv element containing `--bare` remains accepted unless it exactly equals `--bare` |
-| F04 | Default native policy plus exact managed `--allowed-tools mcp__sessionbus__sessionbus`; reject conflicting excludes | `arguments_test.go`; `review_config_test.go`; `lane_visibility_test.go`; `interactive_visibility_test.go` | Installed option F: lane-only private `skills.disabled` hides `sessionbus:sessionbus` and same-name `--mcp-config` sets `alwaysLoadTools` on the already-granted MCP server; QWK923C observed both files during the run and their removal after Close. This revision adds the same targeted visibility files to the interactive child as a source-tested, uninstalled candidate; plain Qwen and native approval modes are unchanged. New candidate restriction: an integrated interactive launch fails closed on unmergeable host system defaults, for example `$version` other than 4, JSONC, non-string `skills.disabled` entries, duplicate keys, trailing or invalid JSON, unreadable or non-regular files, symlink loops, directories, or files over 1 MiB. Native `.env` or settings `env` can enable bare mode after the wrapper's inherited-env check; this is an inherited residual for both surfaces. AUTO stayed enabled; unmerged `5c1126e` remains excluded |
+| F01 | Complete archive install/update, extension and generic skill, private `qwen-peer-mcp` alias, checksum and archive-role safety | `package_archive_test.go`; release install/download/selection tests | The permanent `2ba3e12`/`0eb401e0` build replaced `bf6d0ea` with byte-identical post-install observations after two installs, exact inventory and binding `c145d755` (packet `6dfc48fd`); prior `acd7c4c` and `bf6d0ea` installs remain historical evidence |
+| F02 | One public binary, wrapper/native version and token-selected lane dispatch | `cmd/qwen-peer/main_test.go`; `version_test.go`; common peerversion | Permanent binary/source bound to `2ba3e12`/`0eb401e0`; native Qwen 0.24.3 and observation `1909c885` are provenance, not a version allowlist |
+| F03 | Native argv order, literal `--`, group/name options, resume/continue/fork and `--yolo` | `arguments_test.go`; `interactive_config_test.go`; `interactive_name_test.go`; `interactive_visibility_test.go` | Native selectors and title semantics remain; typed lane permission is separate. Installed compatibility restriction: integrated interactive launches reject explicit `-e sessionbus` combined with `--bare` or `--bare=true` before `--`, an exact `--bare` element after `--`, or truthy inherited `QWEN_CODE_SIMPLE`. Tokens after `--` remain in `argv._`, not `[query..]`; there only an exact `--bare` element enables bare mode. `--bare=x` and `--bare=TRUE` pass through unchanged, as does a single `"text --bare"` element after `--` |
+| F04 | Default native policy plus exact managed `--allowed-tools mcp__sessionbus__sessionbus`; reject conflicting excludes | `arguments_test.go`; `review_config_test.go`; `lane_visibility_test.go`; `interactive_visibility_test.go` | By reviewed source/tests, the installed build supplies a private `skills.disabled:["sessionbus:sessionbus"]` defaults file and `alwaysLoadTools:true` Sessionbus MCP entry to managed and integrated interactive native children, preserving other settings, grants and native approval modes. QWI924E captured the effective child defaults and MCP entry; hiding is inferred from that capture (source-backed), since no native Skill listing was recoverable. Plain `qwen` is unchanged. Installed compatibility restriction: integrated interactive launch fails closed on unmergeable host system defaults, for example `$version` other than 4, JSONC, non-string `skills.disabled` entries, duplicate keys, trailing or invalid JSON, unreadable or non-regular files, symlink loops, directories, or files over 1 MiB. Native `.env` or settings `env` can enable bare mode after the wrapper's inherited-env check; this conditional residual remains for both surfaces. AUTO stayed enabled; unmerged `5c1126e` remains excluded |
 | F05 | Ordinary Qwen stays ordinary: extension contains one skill, no global MCP manifest or helper | `package_test.go`; `package_archive_test.go` | Plain native launch exposes guidance only and no bus owner |
 | F06 | Native identity/title, exclusive initial name claim, rename, resume and fork | `interactive_name_test.go`; `review_initial_name_test.go`; `interactive_reconnect_test.go` | Exact native/public identity join; preserve native history and session-switch limit |
-| F07 | Discovery, list/send, public schema/errors and authenticated reply correlation | `peer_test.go`; `lane_endpoint_test.go`; common MCP tests | Direct MCP use historically works; ToolSearch may defer discovery |
+| F07 | Discovery, list/send, public schema/errors and authenticated reply correlation | `peer_test.go`; `lane_endpoint_test.go`; common MCP tests | Integrated launches declare the granted Sessionbus MCP tool with `alwaysLoadTools:true`; successful informational `tool_search` calls may still occur, as in QWI925B, but its two searches selected no tool |
 | F08 | Zero-input lane open/readiness and native session new/resume | `qwen_test.go`; `acp_test.go`; `run_test.go` | Readiness before model input; no fabricated native terminal |
 | F09 | Run/start/status/wait/ack and bounded result cursor | `run_test.go`; `qwen_test.go`; common lane tests | Collect actual native result before acknowledgement |
 | F10 | Parent lifetime, notification and direct-child tracing | common host/MCP tests; public SDK | Authority and scheduling remain daemon-owned |
-| F11 | Interactive idle inbound autonomous wake | `peer_test.go`; `interactive_events_test.go`; `interactive_visibility_test.go` | QWI924C/D are original predeclared FAILs on the installed `bf6d0ea` interactive path; the later criterion correction does not relabel C. This revision's visibility change is source-tested only; a new installed cell is needed |
-| F12 | Interactive active admission during a native turn | `peer_test.go`; `interactive_events_test.go` | Untested on the extracted permanent install; preserve actual receipt and native turn chronology, not a substituted queued contract |
-| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | QWK923C clean original pass on default AUTO managed idle: exactly two ordinary inputs, tool-free setup, no injected rows, one successful granted MCP call, message-ID-joined, operator-attested direct reply (not a cryptographic receipt), exact final and owned cleanup. QWK923A/B remain original incomplete-wake FAILs |
-| F14 | Managed active delivery is deferred to daemon scheduling; no blocked native mid-turn drain | `run_test.go`; `lane_endpoint_test.go` | QWQ924C is a clean original default AUTO managed-active pass under the installed `bf6d0ea` build; its queued receipt, blocked gate, release, seeded Run and native reply/final were independently reviewed |
+| F11 | Interactive idle inbound autonomous wake | `peer_test.go`; `interactive_events_test.go`; `interactive_visibility_test.go` | QWI924E is an independently reviewed clean original PASS on `2ba3e12`: two ordinary inputs, tool-free setup, one direct explicitly successful MCP call joined to the operator-attested reply, exact final and owned cleanup under normal policy. QWI924A–D ran on `bf6d0ea` and remain original FAILs; root's later pinned native `tool_call` bridge criterion applies only to future cells and does not relabel C |
+| F12 | Interactive active admission during a native turn | `peer_test.go`; `interactive_events_test.go` | QWI925A remains an original FAIL caused by a harness projector timestamp defect; raw native history showed no native failure. QWI925B is an independently reviewed clean original PASS (`6990b392`, review `bc41aa65`) on one observed mid-turn steer; interactive active is accepted for this steady-state lifecycle. The named fixture launched without `-i`, sent one harness-authored `input.jsonl` submit with zero PTY writes, and delivered the inbound only after title confirmation and accepted `session.hello`. For named launches, source-based analysis predicts that a send during an initial `-i` turn before publication is rejected as `unknown_session`; no live cell tested that timing. `written` plus the queued preview proves admission, not same-turn consumption. The gate accepts a mid-turn steer or next-turn delivery; one `mid_turn_user_message` steer was observed. Two successful informational `tool_search` calls selected nothing (an invented `mcp__plugin_qwen-code-dnd_…` name, then `sessionbus`) before the direct granted MCP call |
+| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | QWK923C passed on `bf6d0ea`; QWK924R independently re-PASSed default AUTO managed idle on `2ba3e12`: exactly two ordinary inputs, tool-free setup, no injected rows, one successful granted MCP call, message-ID-joined, operator-attested direct reply (not a cryptographic receipt), exact final and owned cleanup. QWK923A/B remain original FAILs |
+| F14 | Managed active delivery is deferred to daemon scheduling; no blocked native mid-turn drain | `run_test.go`; `lane_endpoint_test.go` | QWQ924C passed on `bf6d0ea`; QWQ924R independently re-PASSed default AUTO managed active on `2ba3e12`: queued receipt, blocked gate, single release, seeded Run, explicit MCP success, exact native final and owned cleanup |
 | F15 | Interactive reconnect, latest identity, supersession terminal | `interactive_reconnect_test.go`; `interactive_lifetime_test.go` | No replay or worker resurrection after terminal loss |
 | F16 | Cancellation and protocol fidelity | `acp_test.go`; `forward_stdio_test.go`; `session_update_test.go` | Native and bus failure classes remain distinct |
 | F17 | Startup, failure, close, native death and owned cleanup | `interactive_owner_test.go`; `interactive_registry_linux_test.go`; `interactive_registry_darwin_test.go` | Exact owned rows/processes absent; abrupt launcher death remains qualified. Bounded follow-up: handle SIGHUP as owned termination and test removal of the one private launch directory and descendant behavior; current SIGHUP can leave its files behind |
@@ -67,11 +72,12 @@ count includes the original `TestMain` harness.
   These A/B results alone did not show whether native AUTO would permit direct
   selection of the granted MCP tool on 0.24.x. No bypass cell was run; bypass
   would not substitute for default mode.
-- By reviewed source and tests, the installed option F build preserves host
+- By reviewed source and tests, the first installed managed option F build
+  `bf6d0ea` preserves host
   system defaults and their schema version in a lane-private file, or fails
   Open before launch on an unsafe or unknown file. It preserves user/workspace
-  settings and unrelated extensions, leaves AUTO and interactive launches
-  untouched, and removes its private files after the ACP child exits; a panic
+  settings and unrelated extensions, leaves AUTO and that build's interactive
+  launches untouched, and removes its private files after the ACP child exits; a panic
   or SIGKILL can leave them behind.
   The defaults-path variable is inherited by the lane child tree. Preservation
   is semantic, not byte-literal: JSON keys or escapes may change, but existing
@@ -91,10 +97,35 @@ count includes the original `TestMain` harness.
   exact final, owned cleanup, during-run private defaults/MCP config and their
   removal after Close are retained in cell `qwen-lane-idle-qwk923c` (seal
   `53b93311`), with independent review in
-  `qwen-f-review-records-opus-20260924` (seal `83d0c9b1`). Host system-defaults
+  `qwen-f-review-records-opus-20260924` (seal `39448482`). Host system-defaults
   were observed absent at install (packet `239621ab`), not re-observed at cell
   time. The review record separately corrects the original outcome's
   process-scan wording; the original cell packet stays unchanged.
+- The later reviewed `2ba3e12` source applies the targeted visibility merge
+  to integrated interactive launches as well. The permanent real-home
+  `2ba3e12`/`0eb401e0` install is bound by packet `6dfc48fd`, BINDING
+  `c145d755`, and observation `1909c885`. Managed idle QWK924R (cell seal
+  `c153b1e0`, independent review `edc29e93`) and managed active QWQ924R
+  (`a890ca68`, review `c2d90c03`) independently re-PASSed under this build.
+  Interactive idle QWI924E (`88d135f2`, review `0e53b88a`) independently
+  PASSed with a direct successful MCP call and owned cleanup under normal
+  policy. Its native-child capture records the private defaults and
+  `alwaysLoadTools:true`; Skill hiding is inferred from that effective-state
+  capture, source-backed, because no native Skill listing was directly
+  recoverable. Host defaults were observed absent at install and in QWQ924R,
+  QWI924E and QWI925A/B preflights; QWK924R did not re-observe absence at cell
+  time, although its private defaults matched the fallback bytes. These
+  observations do not test every merge or bare-mode configuration source.
+  QWI924A–D ran on `bf6d0ea` and keep their original outcomes. Interactive
+  active QWI925A is an original FAIL caused by a harness projector timestamp
+  defect, with no native failure in the raw rows (classification `26f4fed5`);
+  QWI925B is an independently reviewed clean original PASS (cell `6990b392`,
+  review `bc41aa65`) on one mid-turn steer, so interactive active is accepted
+  for that steady-state lifecycle. Its two successful informational
+  `tool_search` calls selected no tools before the direct granted MCP call.
+  All direct
+  replies here are operator-attested and message-ID joined, not cryptographic
+  receipts. QWI925A's original outcome is not relabelled.
 - One fresh cell gets one send, no replay, and no post-inbound harness prompt,
   native input or lifecycle turn. Preserve first failures and actual receipts.
 - Native session switching remains limited to the launch's initial identity, as
@@ -105,8 +136,9 @@ count includes the original `TestMain` harness.
   accounting.
 
 Protected-file/test normalization, source review, retained tests/race/vet/lint/
-packaging and the exact permanent install are complete. QWK923C and QWQ924C
-are clean original managed idle/active passes. QWK923A/B and QWI924C/D remain
-original failures; interactive active is untested and held. This source
-revision's interactive visibility candidate has no live outcome yet.
+packaging and the exact permanent install are complete. Both managed surfaces
+re-PASSed on `2ba3e12`, and interactive idle PASSed once. Interactive active
+has an independently reviewed clean original QWI925B PASS for the tested
+steady-state lifecycle. All four Qwen surfaces now have an accepted cell on
+`2ba3e12`. Earlier original failures remain preserved.
 No tag, release or version changed.

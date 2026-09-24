@@ -29,14 +29,15 @@ conflicting returned ID. The per-session MCP configuration uses the absolute
 private sibling executable and a unique endpoint for that native session.
 The helper forwards the single public tool to that existing Caller.
 
-Call `mcp__sessionbus__sessionbus` with `{action, arguments}`. Qwen may defer
-the tool behind native `tool_search`; use `select:mcp__sessionbus__sessionbus`
-to discover it. Successful helper initialization proves helper startup only,
-not completed native tool discovery. Every managed peer and lane launch adds
-the exact native grant `--allowed-tools mcp__sessionbus__sessionbus`; it does
-not approve another tool or change sandbox and approval policy. Preserve an
-ambient native refusal and report it without replay rather than broadening the
-grant or changing tool deferral.
+Call `mcp__sessionbus__sessionbus` with `{action, arguments}`. Managed lanes
+and integrated interactive launches set `alwaysLoadTools:true` on their wrapper-owned
+Sessionbus MCP entry, so the granted tool is declared directly. Native
+`tool_search` may still occur; successful helper initialization alone does not
+prove model selection or a completed MCP call. Every managed peer and lane
+launch adds the exact native grant `--allowed-tools mcp__sessionbus__sessionbus`;
+it does not approve another tool or change sandbox and approval policy.
+Preserve an ambient native refusal and report it without replay rather than
+broadening the grant.
 
 Use `describe` with `product:"qwen-peer"` for supported Open fields, and
 `spawn` with a product, child name and explicit `open` object. The current
