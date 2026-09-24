@@ -29,7 +29,7 @@
 > is separate and retains its demonstrated idle-wake/active-join behavior. See
 > [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 
-> Managed-lane candidate correction (source only, 2026-09-23): the wrapper writes
+> Managed-lane correction (installed 2026-09-24): the wrapper writes
 > a private system-defaults file that adds only `sessionbus:sessionbus` to
 > `skills.disabled`, while retaining all effective host system defaults. It
 > passes that file only to its ACP child through
@@ -51,10 +51,23 @@
 > new caller-argument restriction is `--bare` with explicit `-e sessionbus`;
 > the same conflict is rejected when inherited `QWEN_CODE_SIMPLE` enables bare
 > mode. Either would disable the skill-visibility control. A model may still
-> attempt the disabled Skill or omit the MCP call;
-> neither constitutes acceptance. QWK923A/B remain original incomplete-wake
-> evidence, and the candidate needs reviewed PR, installation and one fresh
-> default managed-idle cell before any functional claim.
+> attempt the disabled Skill or omit the MCP call; neither constitutes
+> acceptance. The permanent `bf6d0ea`/`6370f92e` install replaced `acd7c4c`
+> (packet `qwen-option-f-installed-bf6-dev2-20260923`, seal `239621ab`, binding
+> `32dc5cb2`). QWK923C is a clean original pass for **default AUTO managed idle
+> only**: two ordinary inputs and no injected rows under an empty environment
+> profile; tool-free setup; one granted `mcp__sessionbus__sessionbus` call with
+> an explicitly successful result joined by message ID to the operator-attested
+> direct reply; the exact wake final; and owned cleanup. There were zero Skill
+> calls, AUTO denials or `tool_search` calls. The lane-private defaults and
+> `--mcp-config` were observed during the run and removed after Close. The
+> reply is not a cryptographic receipt. Host system-defaults were observed
+> absent at install, not re-observed at cell time. The other three Qwen wake
+> surfaces remain untested and held. QWK923A/B remain immutable original FAILs.
+> Evidence: QWK923C cell seal `53b93311` and independent review record
+> `qwen-f-review-records-opus-20260924` (`83d0c9b1`). The review record
+> separately corrects the original cell outcome's process-scan wording; the
+> cell packet itself is unchanged. No tag, release or version changed.
 
 Flat fact list for Qwen Code as a Sessionbus product. No prose beyond facts.
 

@@ -49,7 +49,7 @@ bundle, patch and signature evidence are preserved in
 `/home/antst/sessionbus-evidence/qwen-preservation-inventory-opus-20260923/archive-5c1126e`;
 the SHA256 of that archive's `SHA256SUMS` is
 `c0d06ea8bf6b75bc68b2ca16ced679b14a70855bfbd0c8a83f33297e661f343d`.
-The permanent `acd7c4c` installation has replaced that testing-only build;
+The permanent `acd7c4c` installation replaced that testing-only build;
 install and idempotent reinstall on the real home passed independent archive,
 extension and alias review. QWK922F denied the model-selected Skill under AUTO
 before MCP send, reply or final, so the excluded commit was not a validated fix.
@@ -71,6 +71,14 @@ It replaces testing-only `5c1126e`/binary `9fe201b9`; native Qwen 0.24.3 is
 provenance, not a compatibility restriction. This proves installed bytes and
 layout, not wake acceptance.
 
+The permanent option F installation then replaced `acd7c4c` with reviewed
+`bf6d0ea`/binary `6370f92e`. Its two real-home installs were idempotent, with
+the installed archive, extension, alias and private binary bound by
+`qwen-option-f-installed-bf6-dev2-20260923/BINDING.json` (binding `32dc5cb2`,
+packet seal `239621ab`). Native Qwen 0.24.3 remains provenance only. Host
+system-defaults were observed absent at installation; they were not
+re-observed at QWK923C cell time.
+
 Fresh default managed-idle QWK923A and QWK923B each completed setup and had
 one written inbound admitted as an ordinary native user message. Neither
 launch supplied a bypass or approval-mode override. The model
@@ -81,14 +89,26 @@ setup-only restraint and its denial did not cite that prohibition, so the
 fixture confounder was removed without completing the wake. Both drivers
 later exited on local launcher stdin EOF, after the native AUTO denial
 and the model's next response; that EOF was a harness exit condition,
-not the Qwen outcome. The original A
-and B failure packets remain preserved at
+not the Qwen outcome. The original A and B failure packets remain preserved at
 `qwen-wake-acceptance-live-dev1-20260923/cells-qwk923a` and `cells-qwk923b`
-(seals `1f77f999` and `6e4318b6`). The native direct-MCP selection path on
-0.24.x has not been tested, and these denials do not establish that the
-already-granted MCP tool would be denied. Interactive idle/active and managed
-active are untested and held, not failed. No bypass cell was run; bypass would
-not substitute for default-mode evidence.
+(seals `1f77f999` and `6e4318b6`). Those denials did not establish that the
+already-granted MCP tool would be denied. QWK923C, on installed option F with
+default AUTO, is a **clean original managed-idle pass only**. Its tool-free
+setup and wake history contain exactly two ordinary inputs and no injected
+rows under an empty environment profile. The wake made one granted
+`mcp__sessionbus__sessionbus` call with an explicitly successful native result,
+no Skill, AUTO denial or `tool_search` call, and the exact final. That result's
+message ID joins to the operator-attested direct reply; the reply is not a
+cryptographic receipt. The lane-private defaults (`skills.disabled` including
+`sessionbus:sessionbus`) and `--mcp-config` (`alwaysLoadTools: true`) were
+observed during the run and removed after Close; owned cleanup passed. The
+original cell packet is
+`qwen-option-f-live-dev2-20260924/cells-qwk923c/qwen-lane-idle-qwk923c`
+(seal `53b93311`); independent review is retained in
+`qwen-f-review-records-opus-20260924` (seal `83d0c9b1`). The review record
+separately corrects the original outcome's process-scan sentence; the cell
+packet remains unchanged. Interactive idle/active and managed active remain
+untested and held, not failed. No bypass cell was run.
 
 The old `develop` branch has been removed. The binary-release and package
 preview workflows remain manually disabled; PR #1's hosted checks ran without
@@ -106,6 +126,7 @@ Native Qwen versions are not pinned; exact versions/hashes identify observations
 not a compatibility allowlist.
 
 Source and archive verification, permanent real-home installation, and fresh
-native wake behavior are separate evidence. The first two are complete; the
-default managed-idle wake remains incomplete. No extraction tag or release has
-been made.
+native wake behavior are separate evidence. The first two are complete, and
+one fresh default managed-idle surface passed; the other three Qwen wake
+surfaces are untested and held. No extraction tag, release or version change
+has been made.

@@ -3,19 +3,17 @@
 Baseline: original peers main `710e5d33369cba4fb9468cd24fea0fe844a0219d`.
 F01–F20 are the shared migration requirement IDs. Extraction source preservation
 and fresh installed behavior are separate evidence. Source extraction is
-reviewed, PR #1's four hosted checks pass, and the permanent install is
-complete and idempotent. Fresh default managed-idle wake remains incomplete;
-the other wake surfaces remain untested on the extracted installation.
-An uninstalled managed-lane candidate now hides only the Sessionbus Skill and
-loads the same granted MCP tool directly; its effect on native model behavior
-is untested.
+reviewed, PR #1's four hosted checks pass, and the permanent installs are
+complete and idempotent. The installed option F build passed one fresh default
+AUTO managed-idle wake, QWK923C. Interactive idle/active and managed active
+remain untested and held; QWK923A/B remain original failures.
 
 | ID | Preserved functionality | Existing regression coverage | Installed evidence / limit |
 |---|---|---|---|
-| F01 | Complete archive install/update, extension and generic skill, private `qwen-peer-mcp` alias, checksum and archive-role safety | `package_archive_test.go`; release install/download/selection tests | Real-home install and idempotent reinstall of the exact `acd7c4c` archive passed; extension, plugin and aliases match the archive |
-| F02 | One public binary, wrapper/native version and token-selected lane dispatch | `cmd/qwen-peer/main_test.go`; `version_test.go`; common peerversion | Permanent binary/source bind to `acd7c4c`; native Qwen 0.24.3 is observation provenance |
+| F01 | Complete archive install/update, extension and generic skill, private `qwen-peer-mcp` alias, checksum and archive-role safety | `package_archive_test.go`; release install/download/selection tests | Real-home install and idempotent reinstall of `acd7c4c` passed; option F `bf6d0ea` then replaced it, with two idempotent installs and exact archive, extension, plugin and alias binding (`239621ab`, BINDING `32dc5cb2`) |
+| F02 | One public binary, wrapper/native version and token-selected lane dispatch | `cmd/qwen-peer/main_test.go`; `version_test.go`; common peerversion | Permanent binary/source bind to `bf6d0ea`/`6370f92e`; native Qwen 0.24.3 is observation provenance |
 | F03 | Native argv order, literal `--`, group/name options, resume/continue/fork and `--yolo` | `arguments_test.go`; `interactive_config_test.go`; `interactive_name_test.go` | Preserve native selectors and title semantics; typed lane permission is separate |
-| F04 | Default native policy plus exact managed `--allowed-tools mcp__sessionbus__sessionbus`; reject conflicting excludes | `arguments_test.go`; `review_config_test.go`; `lane_visibility_test.go` | Candidate: lane-only private `skills.disabled` hides `sessionbus:sessionbus` and same-name `--mcp-config` sets `alwaysLoadTools` on the already-granted MCP server; no Skill or unrelated grant, and the unmerged `5c1126e` remains excluded. Not installed or live-accepted |
+| F04 | Default native policy plus exact managed `--allowed-tools mcp__sessionbus__sessionbus`; reject conflicting excludes | `arguments_test.go`; `review_config_test.go`; `lane_visibility_test.go` | Installed option F: lane-only private `skills.disabled` hides `sessionbus:sessionbus` and same-name `--mcp-config` sets `alwaysLoadTools` on the already-granted MCP server; QWK923C observed both files during the run and their removal after Close. AUTO stayed enabled; unmerged `5c1126e` remains excluded |
 | F05 | Ordinary Qwen stays ordinary: extension contains one skill, no global MCP manifest or helper | `package_test.go`; `package_archive_test.go` | Plain native launch exposes guidance only and no bus owner |
 | F06 | Native identity/title, exclusive initial name claim, rename, resume and fork | `interactive_name_test.go`; `review_initial_name_test.go`; `interactive_reconnect_test.go` | Exact native/public identity join; preserve native history and session-switch limit |
 | F07 | Discovery, list/send, public schema/errors and authenticated reply correlation | `peer_test.go`; `lane_endpoint_test.go`; common MCP tests | Direct MCP use historically works; ToolSearch may defer discovery |
@@ -24,7 +22,7 @@ is untested.
 | F10 | Parent lifetime, notification and direct-child tracing | common host/MCP tests; public SDK | Authority and scheduling remain daemon-owned |
 | F11 | Interactive idle inbound autonomous wake | `peer_test.go`; `interactive_events_test.go` | Untested on the extracted permanent install; one inbound, native reply/final and no later harness input remain to be shown |
 | F12 | Interactive active admission during a native turn | `peer_test.go`; `interactive_events_test.go` | Untested on the extracted permanent install; preserve actual receipt and native turn chronology, not a substituted queued contract |
-| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | QWK923A/B each admitted one inbound, then native 0.24.3 AUTO denied a model-selected, non-granted Skill before any MCP call, reply or final; installed wake incomplete |
+| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | QWK923C clean original pass on default AUTO managed idle: exactly two ordinary inputs, tool-free setup, no injected rows, one successful granted MCP call, message-ID-joined direct reply, exact final and owned cleanup. QWK923A/B remain original incomplete-wake FAILs |
 | F14 | Managed active delivery is deferred to daemon scheduling; no blocked native mid-turn drain | `run_test.go`; `lane_endpoint_test.go` | Untested on the extracted permanent install; `queued_for_next_turn` is staging, not native consumption |
 | F15 | Interactive reconnect, latest identity, supersession terminal | `interactive_reconnect_test.go`; `interactive_lifetime_test.go` | No replay or worker resurrection after terminal loss |
 | F16 | Cancellation and protocol fidelity | `acp_test.go`; `forward_stdio_test.go`; `session_update_test.go` | Native and bus failure classes remain distinct |
@@ -64,10 +62,10 @@ count includes the original `TestMain` harness.
   stdin EOF, after the native AUTO denial and the model's next response;
   that EOF was a harness exit condition, not the Qwen outcome. Both original
   failures remain preserved.
-  These results do not show whether native AUTO would permit direct selection
-  of the granted MCP tool on 0.24.x. No bypass cell was run; bypass would not
-  substitute for default mode.
-- The source-only candidate preserves host system defaults and their schema
+  These A/B results alone did not show whether native AUTO would permit direct
+  selection of the granted MCP tool on 0.24.x. No bypass cell was run; bypass
+  would not substitute for default mode.
+- The installed option F build preserves host system defaults and their schema
   version in a lane-private file, or fails Open before launch on an unsafe or
   unknown file. It preserves user/workspace settings and unrelated extensions,
   leaves AUTO and interactive launches untouched, and removes its private
@@ -80,8 +78,19 @@ count includes the original `TestMain` harness.
   `QWEN_CODE_SIMPLE` with explicit `-e sessionbus` is rejected because the
   targeted skill hide would be ineffective. A model that still invokes the
   disabled Skill receives a native disabled-skill response, not a successful
-  MCP send. The one-cell gate requires the actual granted MCP result, direct
-  reply, exact final, and owned cleanup. None is claimed yet.
+  MCP send. QWK923C met the one-cell gate on default AUTO managed idle: the
+  setup turn was tool-free; the final native history had exactly setup and
+  inbound ordinary users, no injected rows under the empty environment
+  profile, one explicitly successful granted MCP call and zero Skill, AUTO
+  denial or `tool_search` calls. Its MCP result and operator-attested direct
+  reply share the message ID; the reply is not a cryptographic receipt. The
+  exact final, owned cleanup, during-run private defaults/MCP config and their
+  removal after Close are retained in cell `qwen-lane-idle-qwk923c` (seal
+  `53b93311`), with independent review in
+  `qwen-f-review-records-opus-20260924` (seal `83d0c9b1`). Host system-defaults
+  were observed absent at install (packet `239621ab`), not re-observed at cell
+  time. The review record separately corrects the original outcome's
+  process-scan wording; the original cell packet stays unchanged.
 - One fresh cell gets one send, no replay, and no post-inbound harness prompt,
   native input or lifecycle turn. Preserve first failures and actual receipts.
 - Native session switching remains limited to the launch's initial identity, as
@@ -92,7 +101,7 @@ count includes the original `TestMain` harness.
   accounting.
 
 Protected-file/test normalization, source review, retained tests/race/vet/lint/
-packaging and the exact permanent install are complete. Full behavioral
-completion still requires fresh interactive and lane observations. QWK923A/B
-remain incomplete wake evidence, and interactive idle/active and managed active
-remain untested on the extracted installation.
+packaging and the exact permanent install are complete. QWK923C is one clean
+original default managed-idle pass. QWK923A/B remain original incomplete-wake
+FAILs, and interactive idle/active and managed active remain untested and held.
+No tag, release or version changed.
