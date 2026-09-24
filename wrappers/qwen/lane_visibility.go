@@ -276,9 +276,17 @@ func qwenBareEnvEnabled(raw string) bool {
 }
 
 func rejectBareSessionbusExtension(arguments []string) error {
+	return rejectBareSessionbusExtensionFor(arguments, os.Getenv("QWEN_CODE_SIMPLE"), "managed Qwen")
+}
+
+func rejectInteractiveBareSessionbusExtension(arguments, environment []string) error {
+	return rejectBareSessionbusExtensionFor(arguments, laneEnvironmentValue(environment, "QWEN_CODE_SIMPLE"), "interactive Qwen")
+}
+
+func rejectBareSessionbusExtensionFor(arguments []string, simple, product string) error {
 	// Installed Qwen 0.24.3 isBareMode accepts either the CLI flag or this
 	// inherited environment flag; both bypass the lane defaults file.
-	bareFromEnv := qwenBareEnvEnabled(os.Getenv("QWEN_CODE_SIMPLE"))
+	bareFromEnv := qwenBareEnvEnabled(simple)
 	bareFromArgs, sessionbus := false, false
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
@@ -312,7 +320,24 @@ func rejectBareSessionbusExtension(arguments []string) error {
 				source = "--bare or QWEN_CODE_SIMPLE"
 			}
 		}
-		return fmt.Errorf("managed Qwen %s cannot select the sessionbus extension: its Skill cannot be hidden", source)
+		return fmt.Errorf("%s %s cannot select the sessionbus extension: its Skill cannot be hidden", product, source)
 	}
 	return nil
+}
+
+// The interactive launch already owns this private directory until its child
+// exits. Reuse the lane's exact fail-closed merge without changing host files.
+func newInteractiveSystemDefaultsFile(directory, cwd string, environment []string) (string, error) {
+	if !filepath.IsAbs(directory) {
+		return "", errors.New("Qwen interactive private launch directory must be absolute")
+	}
+	defaults, err := readHostSystemDefaults(effectiveSystemDefaultsPath(environment, cwd))
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(directory, "system-defaults.json")
+	if err := os.WriteFile(path, defaults, 0o600); err != nil {
+		return "", fmt.Errorf("write Qwen interactive system defaults: %w", err)
+	}
+	return path, nil
 }

@@ -79,6 +79,9 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 	if err := validateManagedQwenArguments(native); err != nil {
 		return host.ExecPlan{}, err
 	}
+	if err := rejectInteractiveBareSessionbusExtension(native, env); err != nil {
+		return host.ExecPlan{}, err
+	}
 	native = appendManagedQwenGrant(native)
 	encoded, _ := json.Marshal(groups)
 	env = append(env, host.GroupsEnv+"="+string(encoded), host.NameEnv+"="+name, host.SocketEnv+"="+first(environmentValue(environment, host.SocketEnv), kit.Socket()), InteractiveEnv+"=launch")
@@ -96,11 +99,17 @@ func cleanInteractiveEnvironment(environment []string) []string {
 // owns its own bus connection; neither a provisional native ID nor a second
 // interactive endpoint is created here.
 func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
+	if environmentValue(plan.Env, InteractiveEnv) == "launch" {
+		if err := rejectInteractiveBareSessionbusExtension(plan.Args, plan.Env); err != nil {
+			return err
+		}
+	}
 	path, err := exec.LookPath(plan.Path)
 	if err != nil {
 		return err
 	}
 	args := slices.Clone(plan.Args)
+	defaultsPath := ""
 	if environmentValue(plan.Env, InteractiveEnv) == "launch" {
 		alias, e := InstalledMCPExecutable()
 		if e != nil {
@@ -110,7 +119,21 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		if e != nil {
 			return e
 		}
+		absolute, e := filepath.Abs(directory)
+		if e != nil {
+			_ = os.RemoveAll(directory)
+			return e
+		}
+		directory = absolute
 		defer os.RemoveAll(directory)
+		cwd, e := os.Getwd()
+		if e != nil {
+			return e
+		}
+		defaultsPath, e = newInteractiveSystemDefaultsFile(directory, cwd, plan.Env)
+		if e != nil {
+			return e
+		}
 		for _, name := range []string{"input.jsonl"} {
 			f, e := os.OpenFile(filepath.Join(directory, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 			if e != nil {
@@ -131,7 +154,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		if e != nil {
 			return e
 		}
-		managed, e := json.Marshal(map[string]any{"command": alias, "args": []string{}, "env": map[string]string{InteractiveEnv: binding}})
+		managed, e := json.Marshal(map[string]any{"command": alias, "args": []string{}, "env": map[string]string{InteractiveEnv: binding}, "alwaysLoadTools": true})
 		if e != nil {
 			return e
 		}
@@ -143,6 +166,11 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	}
 	child := exec.Command(path, args...)
 	child.Env = cleanInteractiveEnvironment(plan.Env)
+	if defaultsPath != "" {
+		child.Env = append(slices.DeleteFunc(child.Env, func(entry string) bool {
+			return strings.HasPrefix(entry, laneSystemDefaultsEnv+"=")
+		}), laneSystemDefaultsEnv+"="+defaultsPath)
+	}
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err = ctx.Err(); err != nil {
 		return err

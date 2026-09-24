@@ -126,6 +126,9 @@ type publicLaunchCapture struct {
 	Binding        interactiveLaunch
 	Input          string
 	LeakedIdentity bool
+	DefaultsPath   string
+	Defaults       json.RawMessage
+	AlwaysLoad     bool
 }
 
 // Directory observers must see complete fixture records at their final names;
@@ -164,7 +167,8 @@ func TestInteractivePublicNativeFixture(t *testing.T) {
 	for i, arg := range args {
 		if arg == "--mcp-config" && i+1 < len(args) {
 			var servers map[string]struct {
-				Env map[string]string `json:"env"`
+				Env             map[string]string `json:"env"`
+				AlwaysLoadTools bool              `json:"alwaysLoadTools"`
 			}
 			if json.Unmarshal([]byte(args[i+1]), &servers) != nil {
 				os.Exit(90)
@@ -172,6 +176,13 @@ func TestInteractivePublicNativeFixture(t *testing.T) {
 			if json.Unmarshal([]byte(servers["sessionbus"].Env[InteractiveEnv]), &capture.Binding) != nil {
 				os.Exit(91)
 			}
+			capture.AlwaysLoad = servers["sessionbus"].AlwaysLoadTools
+			capture.DefaultsPath = os.Getenv(laneSystemDefaultsEnv)
+			defaults, e := os.ReadFile(capture.DefaultsPath)
+			if e != nil || !json.Valid(defaults) {
+				os.Exit(96)
+			}
+			capture.Defaults = defaults
 			data, e := os.ReadFile(filepath.Join(capture.Binding.Directory, "input.jsonl"))
 			if e != nil {
 				os.Exit(92)
@@ -195,6 +206,8 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 	bin := t.TempDir()
 	native := filepath.Join(bin, "qwen")
 	must(t, os.WriteFile(native, []byte("#!/bin/sh\nexec \"$QWEN_PUBLIC_FIXTURE_EXECUTABLE\" -test.run '^TestInteractivePublicNativeFixture$' -- \"$@\"\n"), 0700))
+	hostDefaults := filepath.Join(bin, "host-defaults.json")
+	must(t, os.WriteFile(hostDefaults, []byte(`{"$version":4,"skills":{"disabled":["unrelated"]},"tools":{"visible":["other"]}}`), 0600))
 	testExecutable, e := os.Executable()
 	must(t, e)
 	p, e := inspectNativeProcess(os.Getpid())
@@ -210,7 +223,7 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		command := exec.CommandContext(ctx, public, args...)
 		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		command.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "QWEN_PUBLIC_FIXTURE_EXECUTABLE="+testExecutable, "QWEN_PUBLIC_FIXTURE_CAPTURE="+capturePath, "SESSIONBUS_TOKEN=", "SESSIONBUS_SESSION_ID=stale", nativeSessionEnv+"=stale")
+		command.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "QWEN_PUBLIC_FIXTURE_EXECUTABLE="+testExecutable, "QWEN_PUBLIC_FIXTURE_CAPTURE="+capturePath, "SESSIONBUS_TOKEN=", "SESSIONBUS_SESSION_ID=stale", nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"="+hostDefaults)
 		in, e := command.StdinPipe()
 		must(t, e)
 		command.Stdout = os.Stdout
@@ -224,6 +237,21 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 		must(t, json.Unmarshal(data, &capture))
 		check(t, !capture.LeakedIdentity && capture.Input == "" && capture.Binding.Name == "chosen" && reflect.DeepEqual(capture.Binding.Groups, []string{"a", "b"}), "launch capture=%+v", capture)
 		check(t, capture.Binding.Directory != "" && capture.Binding.Directory != previous, "runtime directory reused")
+		check(t, capture.DefaultsPath == filepath.Join(capture.Binding.Directory, "system-defaults.json") && capture.AlwaysLoad, "interactive visibility not child-bound: %+v", capture)
+		var defaults struct {
+			Version int `json:"$version"`
+			Skills  struct {
+				Disabled []string `json:"disabled"`
+			} `json:"skills"`
+			Tools struct {
+				Visible []string `json:"visible"`
+			} `json:"tools"`
+		}
+		must(t, json.Unmarshal(capture.Defaults, &defaults))
+		check(t, defaults.Version == 4 && reflect.DeepEqual(defaults.Skills.Disabled, []string{"unrelated", managedSkillName}) && reflect.DeepEqual(defaults.Tools.Visible, []string{"other"}), "interactive host defaults changed: %s", capture.Defaults)
+		info, e := os.Stat(capture.DefaultsPath)
+		must(t, e)
+		check(t, info.Mode().Perm() == 0600, "interactive defaults mode = %v", info.Mode())
 		previous = capture.Binding.Directory
 		wantPrefix := []string{"--chat-recording=true", "--input-file", filepath.Join(previous, "input.jsonl"), "--json-file", filepath.Join(previous, "events.fifo"), "--resume", "native title", "--approval-mode", "plan", "--mcp-config"}
 		check(t, len(capture.Args) == 16 && reflect.DeepEqual(capture.Args[:10], wantPrefix) && strings.Contains(capture.Args[10], "9007199254740993") && reflect.DeepEqual(capture.Args[11:], []string{"--allowed-tools", managedQwenTool, "--", "-g", "native-literal"}), "actual native argv=%q", capture.Args)
@@ -250,4 +278,13 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 		_, e = os.Stat(previous)
 		check(t, os.IsNotExist(e), "launcher resources remain: %v", e)
 	}
+	badDefaults := filepath.Join(bin, "unmergeable.json")
+	must(t, os.WriteFile(badDefaults, []byte(`{"$version":4,"skills":{"disabled":[null]}}`), 0600))
+	blockedCapture := filepath.Join(bin, "blocked-capture.json")
+	blocked := exec.Command(public, "-n", "chosen")
+	blocked.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "QWEN_PUBLIC_FIXTURE_EXECUTABLE="+testExecutable, "QWEN_PUBLIC_FIXTURE_CAPTURE="+blockedCapture, laneSystemDefaultsEnv+"="+badDefaults)
+	output, e := blocked.CombinedOutput()
+	check(t, e != nil && strings.Contains(string(output), "skills.disabled must be a string array"), "unsafe host defaults launch: %v %s", e, output)
+	_, e = os.Stat(blockedCapture)
+	check(t, os.IsNotExist(e), "native child started with unmergeable defaults: %v", e)
 }

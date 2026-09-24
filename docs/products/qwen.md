@@ -39,7 +39,7 @@
 > with `alwaysLoadTools: true`, so the already-granted
 > `mcp__sessionbus__sessionbus` tool can be shown directly. AUTO, the exact
 > allowed-tool grant, unrelated extensions and caller arguments remain in
-> force; interactive Qwen does not use either private file. The files live
+> force; the installed `bf6d0ea` interactive path does not use either private file. The files live
 > until the managed child exits and are removed on Close. The child and its
 > descendants inherit the defaults-path environment variable. A panic or
 > SIGKILL can leave the private directory behind, as with the lane socket and
@@ -64,11 +64,36 @@
 > `--mcp-config` were observed during the run and removed after Close. The
 > reply is not a cryptographic receipt. Host system-defaults were observed
 > absent at install, not re-observed at cell time. The other three Qwen wake
-> surfaces remain untested and held. QWK923A/B remain immutable original FAILs.
+> surfaces were untested and held at that checkpoint. QWK923A/B remain
+> immutable original FAILs.
 > Evidence: QWK923C cell seal `53b93311` and independent review record
 > `qwen-f-review-records-opus-20260924` (`83d0c9b1`). The review record
 > separately corrects the original cell outcome's process-scan wording; the
 > cell packet itself is unchanged. No tag, release or version changed.
+
+> Interactive visibility candidate at this source revision (not yet installed
+> or live-tested): `qwen-peer` interactive launches reuse the same fail-closed host
+> defaults merge in their existing private launch directory. Only the native
+> child receives `QWEN_CODE_SYSTEM_DEFAULTS_PATH`; the wrapper-owned
+> `sessionbus` MCP entry gains `alwaysLoadTools: true`. The path and file are
+> removed when the child exits. Plain `qwen` and passthrough invocations retain
+> their original environment and arguments. Native approval mode, exact MCP
+> grant, other extensions and accepted caller arguments remain unchanged. As
+> with managed F, a bare interactive launch (`--bare` or truthy
+> `QWEN_CODE_SIMPLE`) may not explicitly select `-e sessionbus`, because native
+> bare mode would ignore the targeted skill hide. Unsafe or unmergeable host
+> defaults fail before native launch. Source and tests establish this candidate;
+> an installed build and a fresh interactive cell are still required to assess
+> communication under normal policy. A panic or SIGKILL can leave the private
+> launch directory behind.
+
+> Later installed evidence at `bf6d0ea`: QWQ924C is a clean original default
+> managed-active pass (`QWQ924C-INDEPENDENT-RAW-REVIEW-opus.md`). QWI924C and
+> QWI924D remain original interactive-idle FAILs under their predeclared
+> criteria (`QWI924C-INDEPENDENT-CLASSIFICATION-opus.md` and
+> `QWI924D-INDEPENDENT-CLASSIFICATION-opus.md`). Interactive active remains
+> untested. The interactive visibility candidate above has not been installed
+> or exercised in a live cell.
 
 Flat fact list for Qwen Code as a Sessionbus product. No prose beyond facts.
 
