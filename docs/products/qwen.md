@@ -84,10 +84,11 @@
 > element after `--`, or truthy inherited `QWEN_CODE_SIMPLE`) may not explicitly
 > select `-e sessionbus`, because native bare mode would ignore the targeted
 > skill hide. Qwen 0.24.3 tests exact argv elements before parsing
-> (`packages/cli/src/llm.tsx:467`). Its default command declares positional
-> `[query..]`, which is routed to the prompt only after that check
-> (`top-level-options.ts:78-87`, `config.ts:937-950`). A single prompt
-> argument `"text --bare"` is preserved. This is a new interactive
+> (`packages/cli/src/llm.tsx:467`). Tokens after `--` remain in `argv._`
+> rather than binding to `[query..]`
+> (`commands/review/parse-args.ts:1363-1365`). A single argv element
+> `"text --bare"` is preserved; only an exact `--bare` element enables bare
+> mode. This is a new interactive
 > compatibility restriction.
 > Unmergeable host defaults also fail before native launch, where they
 > previously did not: `$version` other than 4, JSONC, unreadable files,

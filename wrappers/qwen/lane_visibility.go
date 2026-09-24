@@ -292,9 +292,10 @@ func rejectBareSessionbusExtensionFor(arguments []string, simple, product string
 		argument := arguments[index]
 		if argument == "--" {
 			// Qwen 0.24.3 llm.tsx:467 checks the exact argv element with
-			// process.argv.includes("--bare") before yargs routes positional
-			// prompts (config.ts:937-950). A prompt containing that substring
-			// is not the exact element. Managed lanes reject this boundary.
+			// process.argv.includes("--bare") before parsing. After --,
+			// tokens remain in argv._ rather than binding to [query..]
+			// (commands/review/parse-args.ts:1363-1365). Only an exact
+			// --bare element enables bare mode. Managed lanes reject --.
 			if interactive {
 				for _, literal := range arguments[index+1:] {
 					bareFromArgs = bareFromArgs || literal == "--bare"
