@@ -35,6 +35,7 @@ type Wrapper struct {
 	command         *exec.Cmd
 	client          *acpClient
 	endpoint        *laneEndpoint
+	visibilityDir   string
 	id              string
 	active          *nativePrompt
 	run             *sessionkit.Run
@@ -126,9 +127,20 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.mu.Lock()
 	p.endpoint = endpoint
 	p.mu.Unlock()
+	server := laneMCPServer(endpoint.Path, mcpExecutable)
+	visibility, err := newLaneVisibilityFiles(endpoint.Path, key, cwd, os.Environ(), server)
+	if err != nil {
+		return result, err
+	}
+	p.mu.Lock()
+	p.visibilityDir = visibility.directory
+	p.mu.Unlock()
+	arguments = append(arguments, "--mcp-config", visibility.mcpPath)
 	command := laneCommand("qwen", arguments...)
 	command.Dir, command.Stderr = cwd, os.Stderr
-	command.Env = slices.DeleteFunc(os.Environ(), func(s string) bool { return strings.HasPrefix(s, LaneEndpointEnv+"=") })
+	command.Env = append(slices.DeleteFunc(os.Environ(), func(s string) bool {
+		return strings.HasPrefix(s, LaneEndpointEnv+"=") || strings.HasPrefix(s, laneSystemDefaultsEnv+"=")
+	}), laneSystemDefaultsEnv+"="+visibility.defaultsPath)
 	child, input, output, err := host.StartChild(command, lock, endpoint.PrivateEndpoint)
 	if err != nil {
 		return result, fmt.Errorf("start Qwen ACP: %w", err)
@@ -155,7 +167,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	if init.ProtocolVersion != 1 || init.AgentInfo.Name != "qwen-code" {
 		return result, errors.New("Qwen ACP initialize returned the wrong product")
 	}
-	params := map[string]any{"cwd": cwd, "mcpServers": []any{laneMCPServer(endpoint.Path, mcpExecutable)}}
+	params := map[string]any{"cwd": cwd, "mcpServers": []any{server}}
 	method := "session/new"
 	if request.ResumeSessionID != "" {
 		if !init.AgentCapabilities.LoadSession {
@@ -263,7 +275,7 @@ func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) e
 	p.closeOnce.Do(func() {
 		p.mu.Lock()
 		p.closing = true
-		child, client, endpoint, cmd, cancel, lock := p.child, p.client, p.endpoint, p.command, p.cancel, p.lock
+		child, client, endpoint, cmd, cancel, lock, visibilityDir := p.child, p.client, p.endpoint, p.command, p.cancel, p.lock, p.visibilityDir
 		p.mu.Unlock()
 		if cancel != nil {
 			defer cancel()
@@ -281,6 +293,9 @@ func (p *Wrapper) Close(ctx context.Context, _ sessionkit.SessionCloseRequest) e
 		if lock != nil {
 			p.closeErr = errors.Join(p.closeErr, lock.Close())
 		}
+		if visibilityDir != "" {
+			p.closeErr = errors.Join(p.closeErr, os.RemoveAll(visibilityDir))
+		}
 	})
 	return p.closeErr
 }
@@ -296,6 +311,9 @@ func launchArguments(open sessionkit.OpenOptions) ([]string, error) {
 		return nil, err
 	}
 	if err = validateManagedQwenArguments(extra); err != nil {
+		return nil, err
+	}
+	if err = rejectBareSessionbusExtension(extra); err != nil {
 		return nil, err
 	}
 	arguments := []string{"--acp"}
