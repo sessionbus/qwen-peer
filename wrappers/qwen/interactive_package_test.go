@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -129,6 +130,7 @@ type publicLaunchCapture struct {
 	DefaultsPath   string
 	Defaults       json.RawMessage
 	AlwaysLoad     bool
+	MCPKeys        []string
 }
 
 // Directory observers must see complete fixture records at their final names;
@@ -166,6 +168,14 @@ func TestInteractivePublicNativeFixture(t *testing.T) {
 	capture := publicLaunchCapture{Args: args, LeakedIdentity: os.Getenv("SESSIONBUS_SESSION_ID") != "" || os.Getenv(nativeSessionEnv) != ""}
 	for i, arg := range args {
 		if arg == "--mcp-config" && i+1 < len(args) {
+			var rawServers map[string]map[string]json.RawMessage
+			if json.Unmarshal([]byte(args[i+1]), &rawServers) != nil {
+				os.Exit(97)
+			}
+			for key := range rawServers["sessionbus"] {
+				capture.MCPKeys = append(capture.MCPKeys, key)
+			}
+			sort.Strings(capture.MCPKeys)
 			var servers map[string]struct {
 				Env             map[string]string `json:"env"`
 				AlwaysLoadTools bool              `json:"alwaysLoadTools"`
@@ -217,13 +227,17 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 	defer watch.close()
 	must(t, watch.add(bin))
 	var previous string
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt, literal := range []string{"text --bare", "--bare=x", "--bare"} {
 		capturePath := filepath.Join(bin, "capture"+string(rune('0'+attempt))+".json")
-		args := []string{"--resume", "native title", "-g", "a,b", "--approval-mode", "plan", "-n", "chosen", "--mcp-config", `{"other":{"command":"keep","number":9007199254740993}}`, "--", "-g", "native-literal"}
+		args := []string{"--resume", "native title", "-g", "a,b", "--approval-mode", "plan", "-n", "chosen", "--mcp-config", `{"other":{"command":"keep","number":9007199254740993}}`}
+		if attempt < 2 {
+			args = append(args, "-e", "sessionbus")
+		}
+		args = append(args, "--", "-g", "native-literal", literal)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		command := exec.CommandContext(ctx, public, args...)
 		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		command.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "QWEN_PUBLIC_FIXTURE_EXECUTABLE="+testExecutable, "QWEN_PUBLIC_FIXTURE_CAPTURE="+capturePath, "SESSIONBUS_TOKEN=", "SESSIONBUS_SESSION_ID=stale", nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"="+hostDefaults)
+		command.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "QWEN_PUBLIC_FIXTURE_EXECUTABLE="+testExecutable, "QWEN_PUBLIC_FIXTURE_CAPTURE="+capturePath, "QWEN_CODE_SIMPLE=", "SESSIONBUS_TOKEN=", "SESSIONBUS_SESSION_ID=stale", nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"="+hostDefaults)
 		in, e := command.StdinPipe()
 		must(t, e)
 		command.Stdout = os.Stdout
@@ -238,6 +252,7 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 		check(t, !capture.LeakedIdentity && capture.Input == "" && capture.Binding.Name == "chosen" && reflect.DeepEqual(capture.Binding.Groups, []string{"a", "b"}), "launch capture=%+v", capture)
 		check(t, capture.Binding.Directory != "" && capture.Binding.Directory != previous, "runtime directory reused")
 		check(t, capture.DefaultsPath == filepath.Join(capture.Binding.Directory, "system-defaults.json") && capture.AlwaysLoad, "interactive visibility not child-bound: %+v", capture)
+		check(t, reflect.DeepEqual(capture.MCPKeys, []string{"alwaysLoadTools", "args", "command", "env"}), "wrapper MCP key set changed: %v", capture.MCPKeys)
 		var defaults struct {
 			Version int `json:"$version"`
 			Skills  struct {
@@ -254,7 +269,12 @@ func exercisePackagedInteractiveLaunch(t *testing.T, public string) {
 		check(t, info.Mode().Perm() == 0600, "interactive defaults mode = %v", info.Mode())
 		previous = capture.Binding.Directory
 		wantPrefix := []string{"--chat-recording=true", "--input-file", filepath.Join(previous, "input.jsonl"), "--json-file", filepath.Join(previous, "events.fifo"), "--resume", "native title", "--approval-mode", "plan", "--mcp-config"}
-		check(t, len(capture.Args) == 16 && reflect.DeepEqual(capture.Args[:10], wantPrefix) && strings.Contains(capture.Args[10], "9007199254740993") && reflect.DeepEqual(capture.Args[11:], []string{"--allowed-tools", managedQwenTool, "--", "-g", "native-literal"}), "actual native argv=%q", capture.Args)
+		wantSuffix := []string{}
+		if attempt < 2 {
+			wantSuffix = append(wantSuffix, "-e", "sessionbus")
+		}
+		wantSuffix = append(wantSuffix, "--allowed-tools", managedQwenTool, "--", "-g", "native-literal", literal)
+		check(t, len(capture.Args) == 11+len(wantSuffix) && reflect.DeepEqual(capture.Args[:10], wantPrefix) && strings.Contains(capture.Args[10], "9007199254740993") && reflect.DeepEqual(capture.Args[11:], wantSuffix), "actual native argv=%q", capture.Args)
 		if attempt == 0 {
 			must(t, syscall.Kill(-command.Process.Pid, syscall.SIGINT))
 			waitFileCondition(t, watch, func() bool {

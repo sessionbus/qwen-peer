@@ -276,14 +276,14 @@ func qwenBareEnvEnabled(raw string) bool {
 }
 
 func rejectBareSessionbusExtension(arguments []string) error {
-	return rejectBareSessionbusExtensionFor(arguments, os.Getenv("QWEN_CODE_SIMPLE"), "managed Qwen")
+	return rejectBareSessionbusExtensionFor(arguments, os.Getenv("QWEN_CODE_SIMPLE"), "managed Qwen", false)
 }
 
 func rejectInteractiveBareSessionbusExtension(arguments, environment []string) error {
-	return rejectBareSessionbusExtensionFor(arguments, laneEnvironmentValue(environment, "QWEN_CODE_SIMPLE"), "interactive Qwen")
+	return rejectBareSessionbusExtensionFor(arguments, laneEnvironmentValue(environment, "QWEN_CODE_SIMPLE"), "interactive Qwen", true)
 }
 
-func rejectBareSessionbusExtensionFor(arguments []string, simple, product string) error {
+func rejectBareSessionbusExtensionFor(arguments []string, simple, product string, interactive bool) error {
 	// Installed Qwen 0.24.3 isBareMode accepts either the CLI flag or this
 	// inherited environment flag; both bypass the lane defaults file.
 	bareFromEnv := qwenBareEnvEnabled(simple)
@@ -291,6 +291,15 @@ func rejectBareSessionbusExtensionFor(arguments []string, simple, product string
 	for index := 0; index < len(arguments); index++ {
 		argument := arguments[index]
 		if argument == "--" {
+			// Qwen 0.24.3 llm.tsx:467 checks the exact argv element with
+			// process.argv.includes("--bare") before yargs routes positional
+			// prompts (config.ts:937-950). A prompt containing that substring
+			// is not the exact element. Managed lanes reject this boundary.
+			if interactive {
+				for _, literal := range arguments[index+1:] {
+					bareFromArgs = bareFromArgs || literal == "--bare"
+				}
+			}
 			break
 		}
 		name, value, attached := strings.Cut(argument, "=")

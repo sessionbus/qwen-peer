@@ -73,19 +73,36 @@
 
 > Interactive visibility candidate at this source revision (not yet installed
 > or live-tested): `qwen-peer` interactive launches reuse the same fail-closed host
-> defaults merge in their existing private launch directory. Only the native
-> child receives `QWEN_CODE_SYSTEM_DEFAULTS_PATH`; the wrapper-owned
+> defaults merge in their existing private launch directory. The native child
+> and its descendants inherit `QWEN_CODE_SYSTEM_DEFAULTS_PATH`; the wrapper's
+> own environment is unchanged. The wrapper-owned
 > `sessionbus` MCP entry gains `alwaysLoadTools: true`. The path and file are
 > removed when the child exits. Plain `qwen` and passthrough invocations retain
 > their original environment and arguments. Native approval mode, exact MCP
 > grant, other extensions and accepted caller arguments remain unchanged. As
-> with managed F, a bare interactive launch (`--bare` or truthy
-> `QWEN_CODE_SIMPLE`) may not explicitly select `-e sessionbus`, because native
-> bare mode would ignore the targeted skill hide. Unsafe or unmergeable host
-> defaults fail before native launch. Source and tests establish this candidate;
+> with managed F, a bare interactive launch (`--bare`, an exact `--bare` argv
+> element after `--`, or truthy inherited `QWEN_CODE_SIMPLE`) may not explicitly
+> select `-e sessionbus`, because native bare mode would ignore the targeted
+> skill hide. Qwen 0.24.3 tests exact argv elements before parsing
+> (`packages/cli/src/llm.tsx:467`). Its default command declares positional
+> `[query..]`, which is routed to the prompt only after that check
+> (`top-level-options.ts:78-87`, `config.ts:937-950`). A single prompt
+> argument `"text --bare"` is preserved. This is a new interactive
+> compatibility restriction.
+> Unmergeable host defaults also fail before native launch, where they
+> previously did not: `$version` other than 4, JSONC, unreadable files,
+> loops, directories and files over 1 MiB are examples. Source and tests
+> establish this candidate;
 > an installed build and a fresh interactive cell are still required to assess
-> communication under normal policy. A panic or SIGKILL can leave the private
-> launch directory behind.
+> communication under normal policy. A panic, SIGKILL or SIGHUP can leave the
+> private launch directory (`input.jsonl`, `events.fifo`,
+> `system-defaults.json`) behind. A descendant that outlives the launcher
+> inherits a path to the removed defaults file. The conflict check sees
+> inherited `QWEN_CODE_SIMPLE`, but native `.env` or settings `env` entries
+> can enable bare mode after the wrapper's check; this inherited residual
+> applies to managed and interactive. Bounded lifecycle follow-up: handle
+> SIGHUP as owned termination, remove this one private directory, and test
+> signal/descendant behavior without changing native policy or input.
 
 > Later installed evidence at `bf6d0ea`: QWQ924C is a clean original default
 > managed-active pass (`QWQ924C-INDEPENDENT-RAW-REVIEW-opus.md`). QWI924C and

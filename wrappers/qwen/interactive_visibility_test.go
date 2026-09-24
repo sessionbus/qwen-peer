@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sessionbus/peer-common/host"
 )
 
 func TestInteractiveBareSessionbusConflictOnly(t *testing.T) {
@@ -20,6 +23,11 @@ func TestInteractiveBareSessionbusConflictOnly(t *testing.T) {
 		{[]string{"--bare", "--extensions=other,SessionBus"}, "", true},
 		{[]string{"-e", "other", "-e", "sessionbus"}, "1", true},
 		{[]string{"-e", "sessionbus"}, "\ufeff1", true},
+		{[]string{"-e", "sessionbus", "--", "--bare"}, "", true},
+		{[]string{"-e", "other", "--", "--bare"}, "", false},
+		{[]string{"-e", "sessionbus", "--", "--bare=true"}, "", false},
+		{[]string{"-e", "sessionbus", "--", "text --bare"}, "", false},
+		{[]string{"--", "--bare"}, "", false},
 		{[]string{"--bare", "-e", "other"}, "", false},
 		{[]string{"--bare"}, "", false},
 		{[]string{"-e", "sessionbus"}, "", false},
@@ -32,8 +40,21 @@ func TestInteractiveBareSessionbusConflictOnly(t *testing.T) {
 		check(t, (err != nil) == tc.bad, "args=%q simple=%q error=%v", tc.args, tc.env, err)
 		if tc.bad {
 			check(t, strings.Contains(err.Error(), "interactive Qwen") && strings.Contains(err.Error(), "Skill cannot be hidden"), "unclear conflict: %v", err)
+		} else if boundary := slices.Index(tc.args, "--"); boundary >= 0 {
+			plan, e := InteractivePlan(tc.args, env)
+			must(t, e)
+			check(t, reflect.DeepEqual(plan.Args[len(plan.Args)-len(tc.args[boundary:]):], tc.args[boundary:]), "native literal argv changed: %q", plan.Args)
 		}
 	}
+}
+
+func TestRunInteractiveRechecksBareSessionbusConflict(t *testing.T) {
+	// An ExecPlan can be passed directly or changed after InteractivePlan.
+	// This error must come from RunInteractive before executable lookup.
+	plan := host.ExecPlan{Path: "qwen-does-not-exist", Args: []string{"-e", "sessionbus", "--", "--bare"},
+		Env: []string{InteractiveEnv + "=launch"}}
+	err := RunInteractive(context.Background(), plan)
+	check(t, err != nil && strings.Contains(err.Error(), "interactive Qwen --bare cannot select the sessionbus extension"), "RunInteractive bare conflict was not rechecked: %v", err)
 }
 
 func TestInteractiveDefaultsUseLaneMergeAndPrivateMode(t *testing.T) {
@@ -71,11 +92,13 @@ func TestPlainQwenPassesHostDefaultsUnchanged(t *testing.T) {
 	must(t, os.WriteFile(native, []byte("#!/bin/sh\nprintf '%s\\n' \"$QWEN_CODE_SYSTEM_DEFAULTS_PATH\" > \"$QWEN_CAPTURE\"\n"), 0700))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	host := filepath.Join(bin, "original.json")
-	plan, err := InteractivePlan([]string{"--version"}, []string{laneSystemDefaultsEnv + "=" + host, "QWEN_CAPTURE=" + capture})
-	must(t, err)
-	check(t, environmentValue(plan.Env, InteractiveEnv) == "", "plain qwen became managed")
-	must(t, RunInteractive(context.Background(), plan))
-	data, err := os.ReadFile(capture)
-	must(t, err)
-	check(t, string(data) == host+"\n", "plain qwen defaults changed: %q", data)
+	for _, args := range [][]string{{"--version"}, {"-n", "x", "mcp", "list"}} {
+		plan, err := InteractivePlan(args, []string{laneSystemDefaultsEnv + "=" + host, "QWEN_CAPTURE=" + capture})
+		must(t, err)
+		check(t, environmentValue(plan.Env, InteractiveEnv) == "", "passthrough became integrated: %q", args)
+		must(t, RunInteractive(context.Background(), plan))
+		data, err := os.ReadFile(capture)
+		must(t, err)
+		check(t, string(data) == host+"\n", "passthrough defaults changed for %q: %q", args, data)
+	}
 }
