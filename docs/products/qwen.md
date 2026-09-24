@@ -29,8 +29,9 @@
 > is separate and retains its demonstrated idle-wake/active-join behavior. See
 > [the all-product boundary](../designs/mandatory-message-wake-20260921/NATIVE-BOUNDARIES.md).
 
-> Managed-lane correction (installed 2026-09-24): the wrapper writes
-> a private system-defaults file that adds only `sessionbus:sessionbus` to
+> Managed-lane correction (installed 2026-09-24; merge and fail-closed rules
+> are source/test-verified; QWK923C ran with host defaults absent): the wrapper
+> writes a private system-defaults file that adds only `sessionbus:sessionbus` to
 > `skills.disabled`, while retaining all effective host system defaults. It
 > passes that file only to its ACP child through
 > `QWEN_CODE_SYSTEM_DEFAULTS_PATH`. The wrapper also passes a private

@@ -67,7 +67,7 @@ original test functions. PR #1's Linux, macOS, scan and workflow-guard checks
 pass. The permanent archive installation and idempotent reinstall are bound by
 `qwen-extraction-installed-dev1-20260923/BINDING.json` (packet seal
 `17000f41287b8b1246bfe79793189d965c91ba5c89e30ad133b13eee81ef92da`).
-It replaces testing-only `5c1126e`/binary `9fe201b9`; native Qwen 0.24.3 is
+It replaced testing-only `5c1126e`/binary `9fe201b9`; native Qwen 0.24.3 is
 provenance, not a compatibility restriction. This proves installed bytes and
 layout, not wake acceptance.
 
@@ -93,14 +93,15 @@ not the Qwen outcome. The original A and B failure packets remain preserved at
 `qwen-wake-acceptance-live-dev1-20260923/cells-qwk923a` and `cells-qwk923b`
 (seals `1f77f999` and `6e4318b6`). Those denials did not establish that the
 already-granted MCP tool would be denied. QWK923C, on installed option F with
-default AUTO, is a **clean original managed-idle pass only**. Its tool-free
-setup and wake history contain exactly two ordinary inputs and no injected
-rows under an empty environment profile. The wake made one granted
-`mcp__sessionbus__sessionbus` call with an explicitly successful native result,
-no Skill, AUTO denial or `tool_search` call, and the exact final. That result's
-message ID joins to the operator-attested direct reply; the reply is not a
-cryptographic receipt. The lane-private defaults (`skills.disabled` including
-`sessionbus:sessionbus`) and `--mcp-config` (`alwaysLoadTools: true`) were
+default AUTO, is a **clean original managed-idle pass only**. Its setup turn
+was tool-free, and its final native history contains exactly two ordinary
+inputs and no injected rows under an empty environment profile. The wake made
+one granted `mcp__sessionbus__sessionbus` call with an explicitly successful
+native result, no Skill, AUTO denial or `tool_search` call, and the exact final.
+That result's message ID joins to the operator-attested direct reply; the
+reply is not a cryptographic receipt. The lane-private defaults included
+`sessionbus:sessionbus` in `skills.disabled`, and the `--mcp-config` set
+`alwaysLoadTools: true`. Both were
 observed during the run and removed after Close; owned cleanup passed. The
 original cell packet is
 `qwen-option-f-live-dev2-20260924/cells-qwk923c/qwen-lane-idle-qwk923c`

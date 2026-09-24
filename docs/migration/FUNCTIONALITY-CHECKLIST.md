@@ -22,7 +22,7 @@ remain untested and held; QWK923A/B remain original failures.
 | F10 | Parent lifetime, notification and direct-child tracing | common host/MCP tests; public SDK | Authority and scheduling remain daemon-owned |
 | F11 | Interactive idle inbound autonomous wake | `peer_test.go`; `interactive_events_test.go` | Untested on the extracted permanent install; one inbound, native reply/final and no later harness input remain to be shown |
 | F12 | Interactive active admission during a native turn | `peer_test.go`; `interactive_events_test.go` | Untested on the extracted permanent install; preserve actual receipt and native turn chronology, not a substituted queued contract |
-| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | QWK923C clean original pass on default AUTO managed idle: exactly two ordinary inputs, tool-free setup, no injected rows, one successful granted MCP call, message-ID-joined direct reply, exact final and owned cleanup. QWK923A/B remain original incomplete-wake FAILs |
+| F13 | Managed idle inbound starts one owned prompt | `run_test.go`; `delivery.go` source | QWK923C clean original pass on default AUTO managed idle: exactly two ordinary inputs, tool-free setup, no injected rows, one successful granted MCP call, message-ID-joined, operator-attested direct reply (not a cryptographic receipt), exact final and owned cleanup. QWK923A/B remain original incomplete-wake FAILs |
 | F14 | Managed active delivery is deferred to daemon scheduling; no blocked native mid-turn drain | `run_test.go`; `lane_endpoint_test.go` | Untested on the extracted permanent install; `queued_for_next_turn` is staging, not native consumption |
 | F15 | Interactive reconnect, latest identity, supersession terminal | `interactive_reconnect_test.go`; `interactive_lifetime_test.go` | No replay or worker resurrection after terminal loss |
 | F16 | Cancellation and protocol fidelity | `acp_test.go`; `forward_stdio_test.go`; `session_update_test.go` | Native and bus failure classes remain distinct |
@@ -65,11 +65,12 @@ count includes the original `TestMain` harness.
   These A/B results alone did not show whether native AUTO would permit direct
   selection of the granted MCP tool on 0.24.x. No bypass cell was run; bypass
   would not substitute for default mode.
-- The installed option F build preserves host system defaults and their schema
-  version in a lane-private file, or fails Open before launch on an unsafe or
-  unknown file. It preserves user/workspace settings and unrelated extensions,
-  leaves AUTO and interactive launches untouched, and removes its private
-  files after the ACP child exits; a panic or SIGKILL can leave them behind.
+- By reviewed source and tests, the installed option F build preserves host
+  system defaults and their schema version in a lane-private file, or fails
+  Open before launch on an unsafe or unknown file. It preserves user/workspace
+  settings and unrelated extensions, leaves AUTO and interactive launches
+  untouched, and removes its private files after the ACP child exits; a panic
+  or SIGKILL can leave them behind.
   The defaults-path variable is inherited by the lane child tree. Preservation
   is semantic, not byte-literal: JSON keys or escapes may change, but existing
   values and numbers keep their meaning. Managed Open fails closed on missing
@@ -78,12 +79,13 @@ count includes the original `TestMain` harness.
   `QWEN_CODE_SIMPLE` with explicit `-e sessionbus` is rejected because the
   targeted skill hide would be ineffective. A model that still invokes the
   disabled Skill receives a native disabled-skill response, not a successful
-  MCP send. QWK923C met the one-cell gate on default AUTO managed idle: the
-  setup turn was tool-free; the final native history had exactly setup and
-  inbound ordinary users, no injected rows under the empty environment
-  profile, one explicitly successful granted MCP call and zero Skill, AUTO
-  denial or `tool_search` calls. Its MCP result and operator-attested direct
-  reply share the message ID; the reply is not a cryptographic receipt. The
+  MCP send. QWK923C exercised only the host-defaults-absent managed-idle path.
+  It met the one-cell gate on default AUTO managed idle: the setup turn was
+  tool-free; the final native history had exactly setup and inbound ordinary
+  users, no injected rows under the empty environment profile, one explicitly
+  successful granted MCP call and zero Skill, AUTO denial or `tool_search`
+  calls. Its MCP result and operator-attested direct reply share the message
+  ID; the reply is not a cryptographic receipt. The
   exact final, owned cleanup, during-run private defaults/MCP config and their
   removal after Close are retained in cell `qwen-lane-idle-qwk923c` (seal
   `53b93311`), with independent review in
