@@ -104,6 +104,7 @@ esac
 		t.Run("interactive-"+mode, func(t *testing.T) { exercisePackagedInteractiveEntry(t, alias, mode) })
 	}
 	t.Run("interactive-public-argv-exit-cleanup", func(t *testing.T) { exercisePackagedInteractiveLaunch(t, public) })
+	t.Run("interactive-public-signal-cleanup", func(t *testing.T) { exercisePackagedInteractiveSignals(t, public) })
 }
 
 func assertGenericSkillPayload(t *testing.T, plugin, root string) {

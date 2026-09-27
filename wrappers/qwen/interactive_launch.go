@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +18,53 @@ import (
 	"github.com/sessionbus/peer-common/host"
 	"golang.org/x/sys/unix"
 )
+
+const launchDirectoryPrefix = "sessionbus-qwen-launch-"
+
+// launchSignal is the cancellation cause recorded by NotifyInteractive.
+type launchSignal struct{ os.Signal }
+
+func (s launchSignal) Error() string { return s.String() + " signal received" }
+
+// NotifyInteractive is signal.NotifyContext that records which signal ended
+// the launch, so RunInteractive forwards that signal. Later signals stay
+// caught until stop and cannot kill the launcher during its cleanup.
+func NotifyInteractive(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	received := make(chan os.Signal, 1)
+	signal.Notify(received, signals...)
+	go func() {
+		select {
+		case s := <-received:
+			cancel(launchSignal{s})
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() {
+		signal.Stop(received)
+		cancel(nil)
+	}
+}
+
+// removeLaunchDirectory removes only a private launch directory owned by uid.
+// Any other path, including a symlink to one, is refused and left in place.
+func removeLaunchDirectory(path string, uid int) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !strings.HasPrefix(filepath.Base(path), launchDirectoryPrefix) {
+		return fmt.Errorf("refusing to remove %q: not a Qwen launch directory", path)
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || info.Mode().Perm()&0077 != 0 || !ok || int(owner.Uid) != uid {
+		return fmt.Errorf("refusing to remove %q: not a private launch directory of uid %d", path, uid)
+	}
+	return os.RemoveAll(path)
+}
 
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 	if environmentValue(environment, host.TokenEnv) != "" {
@@ -115,7 +163,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		if e != nil {
 			return e
 		}
-		directory, e := os.MkdirTemp("", "sessionbus-qwen-launch-")
+		directory, e := os.MkdirTemp("", launchDirectoryPrefix)
 		if e != nil {
 			return e
 		}
@@ -125,7 +173,8 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 			return e
 		}
 		directory = absolute
-		defer os.RemoveAll(directory)
+		// The only removal: once, on return, after any started child is reaped.
+		defer removeLaunchDirectory(directory, os.Getuid())
 		cwd, e := os.Getwd()
 		if e != nil {
 			return e
@@ -184,7 +233,13 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	case err = <-done:
 		return err
 	case <-ctx.Done():
-		if e := child.Process.Signal(syscall.SIGTERM); e != nil && !errors.Is(e, os.ErrProcessDone) {
+		// Forward the signal that ended the launch; other cancellation is TERM.
+		forward := os.Signal(syscall.SIGTERM)
+		var received launchSignal
+		if errors.As(context.Cause(ctx), &received) {
+			forward = received.Signal
+		}
+		if e := child.Process.Signal(forward); e != nil && !errors.Is(e, os.ErrProcessDone) {
 			return errors.Join(e, <-done)
 		}
 		return <-done

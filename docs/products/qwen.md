@@ -101,17 +101,28 @@
 > previously did not: `$version` other than 4, JSONC, unreadable files,
 > loops, directories and files over 1 MiB are examples. Source and tests establish
 > those merge and fail-closed rules; the fresh cells below exercised the
-> host-defaults-absent path, not every compatibility edge. A panic, SIGKILL or
-> SIGHUP can leave the private launch directory (`input.jsonl`, `events.fifo`,
-> `system-defaults.json`) behind. A descendant that outlives the launcher
-> inherits a path to the removed defaults file. The conflict check sees
+> host-defaults-absent path, not every compatibility edge. The installed
+> `2ba3e12` build can leave the private launch directory (`input.jsonl`,
+> `events.fifo`, `system-defaults.json`, `owner.claim`) behind on SIGHUP.
+> The later lifecycle source change, not yet installed, handles SIGHUP like
+> TERM: the launcher forwards the received signal to its direct native child,
+> waits for it, removes that one directory and returns the child's status.
+> Interactive Qwen 0.23.0 and 0.24.4 bundles exit 129 after SIGHUP; the
+> installed 0.24.3 was not re-read. Removal refuses any path that is
+> not the launcher's own private directory. An inherited ignored SIGHUP, as
+> under `nohup`, stays ignored for launcher and native. A panic, SIGKILL or a
+> Go stack-dump signal such as SIGQUIT can still leave the directory behind.
+> A descendant that outlives the launcher, for example one in a new session,
+> is neither signalled nor awaited; it keeps a dangling path to the removed
+> defaults file. The conflict check sees
 > inherited `QWEN_CODE_SIMPLE`, but native `.env` or settings `env` entries
 > can set `QWEN_CODE_SIMPLE` and enable bare mode after the wrapper's check;
 > Skill hiding therefore depends on the effective native configuration and
 > is not guaranteed for every configuration source. This inherited residual
-> applies to managed and interactive. Bounded lifecycle follow-up: handle
-> SIGHUP as owned termination, remove this one private directory, and test
-> signal/descendant behavior without changing native policy or input.
+> applies to managed and interactive. The lifecycle change leaves native
+> policy, arguments, environment and input unchanged; tests cover TERM,
+> SIGHUP, a process-group hangup, a signal storm during cleanup, `nohup`,
+> launcher-only SIGINT and the outliving descendant.
 
 > Installed acceptance at `2ba3e12` is surface-specific. The managed-idle
 > QWK924R and managed-active QWQ924R regressions are independently reviewed

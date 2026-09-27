@@ -25,6 +25,7 @@ func main() {
 		return
 	}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	notify := signal.NotifyContext
 	if filepath.Base(os.Args[0]) != qwen.PrivateAlias && !host.LaneMode() {
 		// Native TUI and launcher share the foreground process group. Native
 		// receives terminal SIGINT itself; do not turn that into a TERM or a
@@ -33,8 +34,15 @@ func main() {
 		signal.Notify(interrupts, os.Interrupt)
 		defer signal.Stop(interrupts)
 		signals = []os.Signal{syscall.SIGTERM}
+		// SIGHUP ends the launch like TERM: forward it, then remove the private
+		// launch directory. Notify would un-ignore an inherited SIG_IGN (nohup)
+		// for launcher and native alike, so an ignored SIGHUP stays ignored.
+		if !signal.Ignored(syscall.SIGHUP) {
+			signals = append(signals, syscall.SIGHUP)
+		}
+		notify = qwen.NotifyInteractive
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), signals...)
+	ctx, cancel := notify(context.Background(), signals...)
 	defer cancel()
 	if err := runEntry(ctx, filepath.Base(os.Args[0]), arguments); err != nil {
 		fmt.Fprintln(os.Stderr, err)

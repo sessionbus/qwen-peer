@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 }
 
 func fakeChild() {
-	record := map[string]any{"args": os.Args[1:], "lane_socket": os.Getenv("SESSIONBUS_LANE_SOCKET"), laneSystemDefaultsEnv: os.Getenv(laneSystemDefaultsEnv)}
+	record := map[string]any{"args": os.Args[1:], "lane_socket": os.Getenv("SESSIONBUS_LANE_SOCKET"), laneSystemDefaultsEnv: os.Getenv(laneSystemDefaultsEnv), "environ": os.Environ()}
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
 		record[name] = os.Getenv(name)
 	}

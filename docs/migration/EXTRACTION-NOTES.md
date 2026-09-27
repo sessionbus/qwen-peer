@@ -133,9 +133,14 @@ after `--`, or truthy inherited `QWEN_CODE_SIMPLE`. After `--`, a single
 element merely containing `--bare` remains accepted; `--bare=x` and
 `--bare=TRUE` pass through unchanged. They also fail closed on unmergeable
 host defaults. These are new
-installed compatibility restrictions. A panic, SIGKILL or SIGHUP can leave the
-private interactive launch directory; handling SIGHUP as owned termination
-and testing descendant behavior remain a bounded lifecycle follow-up.
+installed compatibility restrictions. On that installed build, SIGHUP can
+leave the private interactive launch directory. The later lifecycle source
+change, not yet installed, makes SIGHUP owned termination: the launcher
+forwards it to native, waits, removes only its own private directory and
+returns native's status, while an inherited ignored SIGHUP stays ignored. A
+panic, SIGKILL or a Go stack-dump signal such as SIGQUIT can still leave the
+directory, and a descendant that outlives the launcher keeps a dangling
+defaults path.
 
 On that installed build, managed idle QWK924R (cell `c153b1e0`, independent
 review `edc29e93`) and managed active QWQ924R (`a890ca68`, review `c2d90c03`)
