@@ -106,6 +106,13 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 	eof := make(chan struct{})
 	go func() { _, _ = io.Copy(io.Discard, os.Stdin); close(eof) }()
 	release := time.NewTicker(20 * time.Millisecond)
+	exitRecord := func(code int) {
+		_, e := os.Stat(launch.DefaultsPath)
+		data, _ := json.Marshal(signalFixtureExit{DefaultsPresent: e == nil})
+		_ = publishPublicFixtureFile(filepath.Join(records, "exit.json"), data)
+		os.Exit(code)
+	}
+	ending := false
 	for count := 1; ; count++ {
 		var s os.Signal
 		for s == nil {
@@ -115,6 +122,9 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 				if os.Getenv("QWEN_SIGNAL_FIXTURE_HOLD") != "" {
 					eof = nil // stdin is not the test's to close
 					continue
+				}
+				if mode == "prompt" {
+					exitRecord(37)
 				}
 				os.Exit(37)
 			case <-release.C:
@@ -130,6 +140,15 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 			os.Exit(92)
 		}
 		number := s.(syscall.Signal)
+		if mode == "prompt" {
+			// Like Qwen's TUI: an interrupt only prompts ("Press Ctrl+C again");
+			// HUP or TERM ends it after a short exit cleanup.
+			if number != syscall.SIGINT && !ending {
+				ending = true
+				time.AfterFunc(300*time.Millisecond, func() { exitRecord(128 + int(number)) })
+			}
+			continue
+		}
 		switch {
 		case count > 1, mode == "stubborn":
 		case mode == "raise":
@@ -216,6 +235,8 @@ type signalLaunch struct {
 	// the direct child down to the TUI, pinned by start identity.
 	launcher int
 	chain    []nativeProcessIdentity
+	// terminal is the PTY master of a session-leader launch, if any.
+	terminal *os.File
 	// A non-leader launch runs under a shell that leads the process group and
 	// also runs an unrelated sibling; the shell records the launcher status.
 	sibling    nativeProcessIdentity
@@ -245,6 +266,9 @@ type signalLaunchOptions struct {
 	// hold keeps native running past stdin EOF: os/exec closes the stdin
 	// pipe as soon as it has waited for the launcher.
 	hold bool
+	// raw puts the session leader's terminal in raw mode, as Qwen's TUI does:
+	// Ctrl-C is then a byte, not a SIGINT.
+	raw bool
 }
 
 func startSignalLaunch(t *testing.T, public, mode string, ignoreHangup bool) *signalLaunch {
@@ -297,9 +321,12 @@ func startSignalLaunchWith(t *testing.T, public string, options signalLaunchOpti
 		master, terminal = openTestPTY(t)
 		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if terminal != nil {
+			if options.raw {
+				rawTestPTY(t, terminal)
+			}
 			command.SysProcAttr.Setctty, command.SysProcAttr.Ctty = true, 0
 			command.Stdin, command.Stdout, command.Stderr = terminal, terminal, terminal
-			l.input = master
+			l.input, l.terminal = master, master
 			go func() { _, _ = io.Copy(output, master) }()
 		}
 	}
@@ -695,6 +722,108 @@ func exercisePackagedInteractiveSignals(t *testing.T, public string) {
 			}
 		})
 	}
+	// A SIGINT that kills Qwen's bootstrap (Node's default) while the TUI only
+	// prompts, as a cooked-mode terminal delivers it to the foreground group
+	// or as a program sends it to the bootstrap: the launcher never signals on
+	// SIGINT, keeps the directory while its native job still runs, however
+	// long, and removes it once the TUI later exits on its own.
+	sigint := func(t *testing.T, l *signalLaunch, deliver func(), end func(), hold time.Duration, interrupts int) {
+		t.Helper()
+		tui, bootstrap := l.chain[len(l.chain)-1], l.chain[0]
+		removed := l.observeRemoval(t)
+		deliver()
+		for deadline := time.Now().Add(5 * time.Second); len(l.alive(bootstrap)) != 0; time.Sleep(10 * time.Millisecond) {
+			check(t, time.Now().Before(deadline), "bootstrap %d survived the SIGINT", bootstrap.pid)
+		}
+		select {
+		case <-l.done:
+			t.Fatalf("launcher exited while TUI %d still ran: %v", tui.pid, l.err)
+		case <-time.After(hold):
+		}
+		_, e := os.Stat(l.launch.Directory)
+		check(t, e == nil && len(l.alive(tui)) == 1, "launch directory %v or TUI %d gone while the TUI prompts", e, tui.pid)
+		receipts := l.receipts(t)
+		check(t, len(receipts) == interrupts && (interrupts == 0 || receipts[0].Signal == os.Interrupt.String()), "TUI receipts %+v, want %d interrupt(s) and no signal from the launcher", receipts, interrupts)
+		end()
+		aliveAtRemoval := removed()
+		check(t, len(aliveAtRemoval) == 0, "native processes %v alive when the launch directory was removed", aliveAtRemoval)
+		var exit signalFixtureExit
+		data, e := os.ReadFile(filepath.Join(l.records, "exit.json"))
+		check(t, e == nil && json.Unmarshal(data, &exit) == nil && exit.DefaultsPresent, "TUI exit record %s (%v)", data, e)
+		code, killed := l.launcherExit(t)
+		check(t, killed == 0 && code == 1, "launcher code=%d signal=%v, want exit 1 from the interrupted bootstrap", code, killed)
+		check(t, len(l.alive(l.chain...)) == 0, "native processes %v survive the launcher", l.alive(l.chain...))
+		l.assertNoResidue(t)
+		if l.sibling.pid != 0 {
+			check(t, len(l.alive(l.sibling)) == 1, "unrelated sibling %d was signalled", l.sibling.pid)
+		}
+	}
+	t.Run("sigint-cooked-group-waits-unbounded-for-tui", func(t *testing.T) {
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt", chain: true})
+		// Held past the 10 s job-wait bound: this wait has no bound.
+		sigint(t, l, func() { must(t, syscall.Kill(-l.launcher, syscall.SIGINT)) }, func() { must(t, l.input.Close()) }, 11*time.Second, 1)
+	})
+	t.Run("sigint-programmatic-bootstrap-non-leader-sibling-survives", func(t *testing.T) {
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt", chain: true, topology: nonLeader})
+		// Only the bootstrap is interrupted; the supervisor and TUI run on.
+		sigint(t, l, func() { must(t, syscall.Kill(l.chain[0].pid, syscall.SIGINT)) }, func() { must(t, l.input.Close()) }, 500*time.Millisecond, 0)
+	})
+	t.Run("sigint-then-hup-ends-job-within-bound", func(t *testing.T) {
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt", chain: true})
+		tui := l.chain[len(l.chain)-1]
+		removed := l.observeRemoval(t)
+		must(t, syscall.Kill(-l.launcher, syscall.SIGINT))
+		select {
+		case <-l.done:
+			t.Fatalf("launcher exited after SIGINT while TUI %d ran: %v", tui.pid, l.err)
+		case <-time.After(500 * time.Millisecond):
+		}
+		started := time.Now()
+		must(t, syscall.Kill(l.launcher, syscall.SIGHUP))
+		aliveAtRemoval := removed()
+		code, killed := l.wait(t)
+		check(t, killed == 0 && code == 1 && time.Since(started) < 10*time.Second, "launcher code=%d signal=%v after %s, want within the 10 s job-wait bound", code, killed, time.Since(started))
+		check(t, len(aliveAtRemoval) == 0, "native processes %v alive when the launch directory was removed", aliveAtRemoval)
+		receipts := l.receipts(t)
+		check(t, len(receipts) == 2 && receipts[0].Signal == os.Interrupt.String() && receipts[1] == signalFixtureReceipt{Signal: syscall.SIGHUP.String(), DefaultsPresent: true}, "TUI receipts %+v, want the interrupt then the launcher's hangup", receipts)
+		l.assertNoResidue(t)
+	})
+	if ptyAvailable() {
+		t.Run("sigint-cooked-pty-ctrl-c", func(t *testing.T) {
+			l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt", chain: true, topology: sessionLeader})
+			// Ctrl-C in a cooked terminal; Ctrl-D at a line start then ends
+			// the TUI's input normally.
+			sigint(t, l, func() { _, e := l.terminal.Write([]byte{3}); must(t, e) }, func() { _, e := l.terminal.Write([]byte{4}); must(t, e) }, 500*time.Millisecond, 1)
+		})
+		t.Run("raw-mode-ctrl-c-is-not-a-signal", func(t *testing.T) {
+			l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt", chain: true, topology: sessionLeader, raw: true})
+			_, e := l.terminal.Write([]byte{3})
+			must(t, e)
+			l.assertStillRunning(t)
+			check(t, len(l.alive(l.chain...)) == len(l.chain), "raw-mode Ctrl-C ended native processes: alive %v", l.alive(l.chain...))
+			removed := l.observeRemoval(t)
+			must(t, syscall.Kill(l.launcher, syscall.SIGHUP))
+			check(t, len(removed()) == 0, "native processes alive when the launch directory was removed")
+			code, killed := l.wait(t)
+			check(t, killed == 0 && code == 1, "launcher code=%d signal=%v", code, killed)
+			receipts := l.receipts(t)
+			check(t, len(receipts) == 1 && receipts[0].Signal == syscall.SIGHUP.String(), "TUI receipts %+v, want only the hangup", receipts)
+		})
+	}
+	t.Run("chain-bootstrap-killed-by-term-elsewhere-ends-job", func(t *testing.T) {
+		// TERM from elsewhere kills only the bootstrap: the launcher was not
+		// signalled, yet it ends the rest of the job with that TERM.
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "slow", chain: true})
+		removed := l.observeRemoval(t)
+		must(t, syscall.Kill(l.chain[0].pid, syscall.SIGTERM))
+		aliveAtRemoval := removed()
+		code, killed := l.wait(t)
+		check(t, killed == 0 && code == 1, "launcher code=%d signal=%v, want exit 1", code, killed)
+		check(t, len(aliveAtRemoval) == 0, "native processes %v alive when the launch directory was removed", aliveAtRemoval)
+		receipts := l.receipts(t)
+		check(t, len(receipts) >= 1 && receipts[0] == signalFixtureReceipt{Signal: syscall.SIGTERM.String(), DefaultsPresent: true}, "TUI receipts %+v, want the TERM before cleanup", receipts)
+		l.assertNoResidue(t)
+	})
 	t.Run("chain-survivor-at-bound-keeps-directory", func(t *testing.T) {
 		// The TUI ignores the signal: the launcher waits for the bound, keeps
 		// the directory, names the survivor once and keeps its exit mapping.

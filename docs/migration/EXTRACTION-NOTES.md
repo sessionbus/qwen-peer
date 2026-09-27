@@ -142,7 +142,10 @@ identity-checked descendant in the launcher's process group, the TUI
 included, receives the signal before the direct child, and the directory is
 removed only after all have exited, within 10 s; a member still running then
 keeps the directory and is named on stderr. With the installed bootstrap the
-launcher exits 1. An inherited ignored SIGHUP stays ignored for the launcher
+launcher exits 1. SIGINT is never forwarded: if a cooked-mode or programmatic
+SIGINT kills the bootstrap while the TUI keeps running, the launcher keeps
+the directory until the rest of its native job has exited, with no time
+bound. An inherited ignored SIGHUP stays ignored for the launcher
 only, because Node resets it. A panic, SIGKILL or a Go stack-dump signal
 such as SIGQUIT can still leave the directory, and descendants outside the
 process group, such as detached shell tools, keep a dangling defaults path.

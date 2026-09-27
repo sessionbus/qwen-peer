@@ -259,6 +259,10 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		// ends here: its members get that signal and are awaited.
 		var ended bool
 		if forward, ended = nativeJobSignal(ctx, err); !ended {
+			// No job-ending signal: whatever the direct child left running,
+			// such as a TUI whose bootstrap a SIGINT killed, keeps the launch
+			// directory until it exits.
+			survivors = awaitNativeJob(ctx, direct)
 			return err
 		}
 		owned, waitOnly := nativeJob(direct)

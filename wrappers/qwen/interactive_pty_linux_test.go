@@ -24,3 +24,15 @@ func openTestPTY(t *testing.T) (master, terminal *os.File) {
 	t.Cleanup(func() { _ = master.Close() })
 	return master, terminal
 }
+
+func ptyAvailable() bool { return true }
+
+// rawTestPTY disables signal-generating characters on the terminal, as a TUI
+// in raw mode does: Ctrl-C then arrives as a byte, not as SIGINT.
+func rawTestPTY(t *testing.T, terminal *os.File) {
+	t.Helper()
+	settings, err := unix.IoctlGetTermios(int(terminal.Fd()), unix.TCGETS)
+	must(t, err)
+	settings.Lflag &^= unix.ISIG | unix.ICANON | unix.ECHO
+	must(t, unix.IoctlSetTermios(int(terminal.Fd()), unix.TCSETS, settings))
+}

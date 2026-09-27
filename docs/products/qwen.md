@@ -121,7 +121,13 @@
 > for same-group orphans reparented to launchd that started after the direct
 > child, which is a heuristic. The exit status remains the direct child's:
 > the installed bootstrap dies by the signal, so the launcher exits 1, not
-> the TUI's own 129 or 143. Removal refuses any path that is
+> the TUI's own 129 or 143. SIGINT is never forwarded; native keeps its own
+> Ctrl-C handling. When the direct child ends without a HUP or TERM, for
+> example a bootstrap killed by a cooked-mode or programmatic SIGINT while
+> the TUI only prompts, the launcher keeps the directory, with no time bound,
+> until every remaining process of its native job has exited, then removes
+> it; the exit status is still the direct child's (1 after that SIGINT). A
+> HUP or TERM during that wait ends the job as above. Removal refuses any path that is
 > not the launcher's own private directory; a refusal is reported in one
 > stderr line without changing the exit status. An inherited ignored SIGHUP,
 > as under `nohup`, stays ignored for the launcher only: Node resets it at
@@ -141,8 +147,9 @@
 > Qwen's three-level topology and signal the launcher as a process-group
 > leader, as a PTY session leader and as a non-leader next to an unrelated
 > process, which survives. They also cover job-wide hangups, a signal before
-> the TUI starts, a member still running at the bound, identity checks and
-> a descendant outside the process group.
+> the TUI starts, a member still running at the bound, a cooked-mode or
+> programmatic SIGINT that kills the bootstrap while the TUI keeps running,
+> raw-mode Ctrl-C, identity checks and a descendant outside the process group.
 
 > Installed acceptance at `2ba3e12` is surface-specific. The managed-idle
 > QWK924R and managed-active QWQ924R regressions are independently reviewed

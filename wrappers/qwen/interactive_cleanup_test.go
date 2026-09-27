@@ -445,19 +445,30 @@ func TestWaitNativeJobIsBounded(t *testing.T) {
 
 // Without a child subreaper (macOS), orphans reparented to PID 1 are awaited,
 // never signalled, when they are live, in the launcher's group, not already
-// listed, and started no earlier than the direct child.
+// listed, and started no earlier than the direct child; so are their live
+// same-group descendants, such as a TUI under an orphaned supervisor.
 func TestLaunchdOrphanHeuristic(t *testing.T) {
-	entry := func(pid, group int, started uint64, live bool) nativeProcessEntry {
-		return nativeProcessEntry{nativeProcessIdentity: nativeProcessIdentity{pid: pid, parent: 1, start: fmt.Sprint(started)}, group: group, started: started, live: live}
+	entry := func(pid, parent, group int, started uint64, live bool) nativeProcessEntry {
+		return nativeProcessEntry{nativeProcessIdentity: nativeProcessIdentity{pid: pid, parent: parent, start: fmt.Sprint(started)}, group: group, started: started, live: live}
 	}
-	orphans := []nativeProcessEntry{
-		entry(10, 7, 100, true), // the TUI orphaned by its bootstrap's death
-		entry(11, 7, 50, true),  // started before the direct child
-		entry(12, 8, 100, true), // another process group
-		entry(13, 7, 100, false),
-		entry(14, 7, 100, true), // already listed
-		entry(15, 7, 99, true),  // started just before the direct child
+	children := map[int][]nativeProcessEntry{}
+	for _, p := range []nativeProcessEntry{
+		entry(10, 1, 7, 100, true),   // a supervisor orphaned by its bootstrap's death
+		entry(20, 10, 7, 120, true),  // its TUI
+		entry(21, 10, 8, 120, true),  // a detached tool: another process group
+		entry(22, 20, 7, 130, false), // an exited process under the TUI
+		entry(11, 1, 7, 50, true),    // started before the direct child
+		entry(12, 1, 8, 100, true),   // another process group
+		entry(13, 1, 7, 100, false),  // exited
+		entry(14, 1, 7, 100, true),   // already listed
+		entry(15, 1, 7, 99, true),    // started just before the direct child
+	} {
+		children[p.parent] = append(children[p.parent], p)
 	}
-	got := launchdOrphans(orphans, map[int]bool{14: true}, 7, 100)
-	check(t, len(got) == 1 && got[0].pid == 10, "launchd orphan candidates %+v, want only pid 10", got)
+	got := launchdOrphans(children, map[int]bool{14: true}, 7, 100)
+	pids := []int{}
+	for _, p := range got {
+		pids = append(pids, p.pid)
+	}
+	check(t, reflect.DeepEqual(pids, []int{10, 20}), "launchd orphan candidates %v, want [10 20]", pids)
 }

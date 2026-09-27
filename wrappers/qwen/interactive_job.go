@@ -2,6 +2,7 @@
 package qwen
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -78,17 +79,32 @@ func nativeJob(direct nativeProcessIdentity) (owned, waitOnly []nativeProcessIde
 	if nativeOrphansAdopted.Load() || direct.start == "" {
 		return owned, nil
 	}
-	return owned, launchdOrphans(children[1], seen, group, nativeProcessStarted(direct.start))
+	return owned, launchdOrphans(children, seen, group, nativeProcessStarted(direct.start))
 }
 
-// launchdOrphans selects the wait-only heuristic's candidates among processes
-// reparented to PID 1: live, not already listed, in the launcher's process
-// group, and started no earlier than the direct child.
-func launchdOrphans(orphans []nativeProcessEntry, seen map[int]bool, group int, after uint64) []nativeProcessIdentity {
-	candidates := []nativeProcessIdentity{}
-	for _, p := range orphans {
+// launchdOrphans selects the wait-only heuristic's candidates: processes
+// reparented to PID 1 that are live, not already listed, in the launcher's
+// process group and started no earlier than the direct child, and their live
+// same-group descendants (a TUI under an orphaned supervisor).
+func launchdOrphans(children map[int][]nativeProcessEntry, seen map[int]bool, group int, after uint64) []nativeProcessIdentity {
+	candidates, queue := []nativeProcessIdentity{}, []int{}
+	for _, p := range children[1] {
 		if !seen[p.pid] && p.live && p.group == group && p.started >= after {
+			seen[p.pid] = true
 			candidates = append(candidates, p.nativeProcessIdentity)
+			queue = append(queue, p.pid)
+		}
+	}
+	for ; len(queue) > 0; queue = queue[1:] {
+		for _, p := range children[queue[0]] {
+			if seen[p.pid] {
+				continue
+			}
+			seen[p.pid] = true
+			queue = append(queue, p.pid)
+			if p.live && p.group == group {
+				candidates = append(candidates, p.nativeProcessIdentity)
+			}
 		}
 	}
 	return candidates
@@ -107,18 +123,50 @@ func signalNativeJob(job []nativeProcessIdentity, sig syscall.Signal) {
 func waitNativeJob(job []nativeProcessIdentity, bound time.Duration) []nativeProcessIdentity {
 	deadline := time.Now().Add(bound)
 	for {
-		alive := []nativeProcessIdentity{}
-		for _, p := range job {
-			if current, err := inspectNativeProcess(p.pid); err == nil && current.start == p.start {
-				alive = append(alive, p)
-			}
-		}
+		alive := liveNativeJob(job)
 		if len(alive) == 0 || !time.Now().Before(deadline) {
 			return alive
 		}
 		job = alive
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// awaitNativeJob waits, without a bound, until the job left behind by a direct
+// child that ended without a job-ending signal is gone. A SIGINT that kills
+// Qwen's bootstrap leaves its TUI running, and the launch directory must
+// outlive it. The job is re-listed every second, so processes the TUI starts
+// meanwhile are awaited too. A HUP or TERM to the launcher during the wait
+// ends the remaining job like any other: its members get the signal and the
+// bounded wait applies. The launcher itself never signals on SIGINT.
+func awaitNativeJob(ctx context.Context, direct nativeProcessIdentity) []nativeProcessIdentity {
+	owned, waitOnly := nativeJob(direct)
+	job := joinNativeJobs(owned, waitOnly)
+	for listed := time.Now(); len(job) != 0; {
+		select {
+		case <-ctx.Done():
+			owned, waitOnly = nativeJob(direct)
+			signalNativeJob(owned, forwardedSignal(ctx))
+			return waitNativeJob(joinNativeJobs(job, owned, waitOnly), nativeJobWait)
+		case <-time.After(100 * time.Millisecond):
+		}
+		if job = liveNativeJob(job); len(job) == 0 || time.Since(listed) >= time.Second {
+			owned, waitOnly = nativeJob(direct)
+			job, listed = joinNativeJobs(job, owned, waitOnly), time.Now()
+		}
+	}
+	return nil
+}
+
+// liveNativeJob keeps the listed processes that are still the same process.
+func liveNativeJob(job []nativeProcessIdentity) []nativeProcessIdentity {
+	alive := []nativeProcessIdentity{}
+	for _, p := range job {
+		if current, err := inspectNativeProcess(p.pid); err == nil && current.start == p.start {
+			alive = append(alive, p)
+		}
+	}
+	return alive
 }
 
 func joinNativeJobs(jobs ...[]nativeProcessIdentity) []nativeProcessIdentity {

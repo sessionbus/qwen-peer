@@ -42,6 +42,17 @@ func TestAdoptNativeOrphansReapsOrphansNeverTheDirectChild(t *testing.T) {
 	must(t, direct.Start())
 	nativeDirectChild.Store(int64(direct.Process.Pid))
 	defer nativeDirectChild.Store(0)
+	// Let the direct child exit and sit as a zombie, with the reaper's SIGCHLD
+	// delivered, before os/exec collects it: a reaper that took it would win.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		stat, e := os.ReadFile(fmt.Sprintf("/proc/%d/stat", direct.Process.Pid))
+		end := strings.LastIndexByte(string(stat), ')')
+		if e != nil || end >= 0 && strings.HasPrefix(strings.TrimSpace(string(stat[end+1:])), "Z") {
+			break
+		}
+		check(t, time.Now().Before(deadline), "direct child did not exit")
+	}
+	time.Sleep(200 * time.Millisecond)
 	err := direct.Wait()
 	var exit *exec.ExitError
 	check(t, errors.As(err, &exit) && exit.ExitCode() == 7, "direct child wait = %v: its status was taken", err)

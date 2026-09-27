@@ -153,7 +153,9 @@ transport, not a wrapper history/recovery store.
 Terminal-group SIGINT is left to native Qwen; the launcher does not convert it
 into TERM or send a duplicate interrupt. Normal exit ends the native chain;
 TERM or HUP to the launcher is delivered to its whole native job, which is
-awaited before those resources are removed. Helper
+awaited before those resources are removed. If the chain's bootstrap ends
+first without HUP or TERM, for example on a cooked-mode SIGINT, the resources
+stay until the remaining native processes exit. Helper
 EOF, native-parent loss or launcher loss cancels its sole Caller and observers.
 If the launcher is killed abruptly, the integration retires but native processes
 and unique files may remain; there is no claim of reaping/cleanup by a dead
