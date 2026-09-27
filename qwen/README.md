@@ -151,8 +151,8 @@ bounded at eight, and incoming bus handler work at 32. This is temporary native
 transport, not a wrapper history/recovery store.
 
 Terminal-group SIGINT is left to native Qwen; the launcher does not convert it
-into TERM or send a duplicate interrupt. Normal exit/TERM joins the child and
-removes those resources. Helper
+into TERM or send a duplicate interrupt. Normal exit, TERM or HUP joins the
+child and removes those resources. Helper
 EOF, native-parent loss or launcher loss cancels its sole Caller and observers.
 If the launcher is killed abruptly, the integration retires but native processes
 and unique files may remain; there is no claim of reaping/cleanup by a dead

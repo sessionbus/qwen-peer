@@ -24,27 +24,22 @@ func main() {
 		fmt.Fprintln(os.Stdout, report)
 		return
 	}
-	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
-	notify := signal.NotifyContext
-	if filepath.Base(os.Args[0]) != qwen.PrivateAlias && !host.LaneMode() {
+	basename := filepath.Base(os.Args[0])
+	signals, notify := entrySignals(basename, host.LaneMode(), signal.Ignored(syscall.SIGHUP))
+	if basename != qwen.PrivateAlias && !host.LaneMode() {
 		// Native TUI and launcher share the foreground process group. Native
 		// receives terminal SIGINT itself; do not turn that into a TERM or a
 		// duplicate interrupt. Notify (not Ignore) preserves child disposition.
 		interrupts := make(chan os.Signal, 1)
 		signal.Notify(interrupts, os.Interrupt)
 		defer signal.Stop(interrupts)
-		signals = []os.Signal{syscall.SIGTERM}
-		// SIGHUP ends the launch like TERM: forward it, then remove the private
-		// launch directory. Notify would un-ignore an inherited SIG_IGN (nohup)
-		// for launcher and native alike, so an ignored SIGHUP stays ignored.
-		if !signal.Ignored(syscall.SIGHUP) {
-			signals = append(signals, syscall.SIGHUP)
-		}
-		notify = qwen.NotifyInteractive
 	}
+	// Register before runEntry: the interactive launch directory exists only
+	// inside runEntry, so a handled signal never takes Go's default exit while
+	// that directory exists.
 	ctx, cancel := notify(context.Background(), signals...)
 	defer cancel()
-	if err := runEntry(ctx, filepath.Base(os.Args[0]), arguments); err != nil {
+	if err := runEntry(ctx, basename, arguments); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		code := 1
 		var native *exec.ExitError
@@ -53,6 +48,22 @@ func main() {
 		}
 		os.Exit(code)
 	}
+}
+
+// entrySignals returns the signals that end this entry and how they arrive.
+// Lane workers and the private MCP entry keep SIGINT and SIGTERM. The
+// interactive launcher owns SIGTERM and SIGHUP: it forwards either to native,
+// then removes its private launch directory. Notify would un-ignore an
+// inherited SIG_IGN (nohup) for launcher and native alike, so an ignored
+// SIGHUP stays ignored.
+func entrySignals(basename string, lane, hangupIgnored bool) ([]os.Signal, func(context.Context, ...os.Signal) (context.Context, context.CancelFunc)) {
+	if basename == qwen.PrivateAlias || lane {
+		return []os.Signal{os.Interrupt, syscall.SIGTERM}, signal.NotifyContext
+	}
+	if hangupIgnored {
+		return []os.Signal{syscall.SIGTERM}, qwen.NotifyInteractive
+	}
+	return []os.Signal{syscall.SIGTERM, syscall.SIGHUP}, qwen.NotifyInteractive
 }
 
 func runEntry(ctx context.Context, basename string, arguments []string) error {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -50,7 +51,7 @@ func NotifyInteractive(parent context.Context, signals ...os.Signal) (context.Co
 // Any other path, including a symlink to one, is refused and left in place.
 func removeLaunchDirectory(path string, uid int) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !strings.HasPrefix(filepath.Base(path), launchDirectoryPrefix) {
-		return fmt.Errorf("refusing to remove %q: not a Qwen launch directory", path)
+		return errors.New("refused: not a clean absolute launch directory path")
 	}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -61,9 +62,17 @@ func removeLaunchDirectory(path string, uid int) error {
 	}
 	owner, ok := info.Sys().(*syscall.Stat_t)
 	if !info.IsDir() || info.Mode().Perm()&0077 != 0 || !ok || int(owner.Uid) != uid {
-		return fmt.Errorf("refusing to remove %q: not a private launch directory of uid %d", path, uid)
+		return fmt.Errorf("refused: not a private directory owned by uid %d", uid)
 	}
 	return os.RemoveAll(path)
+}
+
+// cleanupLaunchDirectory reports, in one line, a launch directory it could not
+// remove. The report never changes the launch's exit status.
+func cleanupLaunchDirectory(report io.Writer, path string, uid int) {
+	if err := removeLaunchDirectory(path, uid); err != nil {
+		fmt.Fprintf(report, "qwen-peer: left private launch directory %s: %v\n", path, err)
+	}
 }
 
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
@@ -173,8 +182,8 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 			return e
 		}
 		directory = absolute
-		// The only removal: once, on return, after any started child is reaped.
-		defer removeLaunchDirectory(directory, os.Getuid())
+		// Removed once, on return, after any started child is reaped.
+		defer cleanupLaunchDirectory(os.Stderr, directory, os.Getuid())
 		cwd, e := os.Getwd()
 		if e != nil {
 			return e

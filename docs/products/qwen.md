@@ -45,9 +45,9 @@
 > force; at the `bf6d0ea` checkpoint the interactive path did not use either
 > private file. The files live until the managed child exits and are removed
 > on Close. The child and its
-> descendants inherit the defaults-path environment variable. A panic or
-> SIGKILL can leave the private directory behind, as with the lane socket and
-> lock. The host defaults are preserved semantically, not byte-for-byte: JSON
+> descendants inherit the defaults-path environment variable. A panic,
+> SIGKILL or SIGHUP can leave the private directory behind, as with the lane
+> socket and lock. The host defaults are preserved semantically, not byte-for-byte: JSON
 > keys may be reordered and `<>&` or U+2028 escaped, while existing values and
 > numbers retain their meaning. Managed Open fails before native launch if the
 > host defaults cannot be merged safely. Deliberately stricter than Qwen, it
@@ -109,7 +109,8 @@
 > waits for it, removes that one directory and returns the child's status.
 > Interactive Qwen 0.23.0 and 0.24.4 bundles exit 129 after SIGHUP; the
 > installed 0.24.3 was not re-read. Removal refuses any path that is
-> not the launcher's own private directory. An inherited ignored SIGHUP, as
+> not the launcher's own private directory; a refusal is reported in one
+> stderr line without changing the exit status. An inherited ignored SIGHUP, as
 > under `nohup`, stays ignored for launcher and native. A panic, SIGKILL or a
 > Go stack-dump signal such as SIGQUIT can still leave the directory behind.
 > A descendant that outlives the launcher, for example one in a new session,

@@ -69,6 +69,9 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 		}
 	}
 	mode := os.Getenv("QWEN_SIGNAL_FIXTURE_MODE")
+	if mode == "loosen" && os.Chmod(launch.Directory, 0755) != nil {
+		os.Exit(94)
+	}
 	if mode == "descendant" {
 		// A new session is outside the launcher's process group and is never
 		// signalled by it; it outlives both native and the launcher.
@@ -139,6 +142,7 @@ type signalLaunch struct {
 	done         chan struct{}
 	err          error
 	records, tmp string
+	output       string
 	env          []string
 	launch       signalFixtureLaunch
 	hostDefaults string
@@ -181,7 +185,7 @@ func startSignalLaunch(t *testing.T, public, mode string, ignoreHangup bool) *si
 	defer watch.close()
 	must(t, watch.add(records))
 	must(t, command.Start())
-	l := &signalLaunch{command: command, input: input, done: make(chan struct{}), records: records, tmp: tmp, env: env, hostDefaults: hostDefaults}
+	l := &signalLaunch{command: command, input: input, done: make(chan struct{}), records: records, tmp: tmp, output: output.Name(), env: env, hostDefaults: hostDefaults}
 	go func() { l.err = command.Wait(); close(l.done) }()
 	t.Cleanup(func() {
 		_ = input.Close()
@@ -344,6 +348,27 @@ func exercisePackagedInteractiveSignals(t *testing.T, public string) {
 		code, killed := l.wait(t)
 		check(t, code == 37 && killed == 0, "interrupted launch exit: code=%d signal=%v", code, killed)
 		l.assertNoResidue(t)
+	})
+	t.Run("refused-cleanup-reported-exit-unchanged", func(t *testing.T) {
+		// Native loosens its launch directory; the guard refuses to remove it,
+		// reports that once on stderr and leaves native's exit status intact.
+		l := startSignalLaunch(t, public, "loosen", false)
+		must(t, l.input.Close())
+		code, killed := l.wait(t)
+		check(t, code == 37 && killed == 0, "refused cleanup changed exit: code=%d signal=%v", code, killed)
+		output, e := os.ReadFile(l.output)
+		must(t, e)
+		reports := []string{}
+		for _, line := range strings.Split(string(output), "\n") {
+			if strings.HasPrefix(line, "qwen-peer: left private launch directory ") {
+				reports = append(reports, line)
+			}
+		}
+		want := fmt.Sprintf("qwen-peer: left private launch directory %s: refused: not a private directory owned by uid %d", l.launch.Directory, os.Getuid())
+		check(t, len(reports) == 1 && reports[0] == want, "cleanup reports %q, want one %q", reports, want)
+		entries, e := os.ReadDir(l.tmp)
+		must(t, e)
+		check(t, len(entries) == 1 && filepath.Join(l.tmp, entries[0].Name()) == l.launch.Directory, "refused directory not left in place: %v", entries)
 	})
 	t.Run("hup-descendant-outlives-launcher", func(t *testing.T) {
 		l := startSignalLaunch(t, public, "descendant", false)
