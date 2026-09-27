@@ -134,13 +134,18 @@ element merely containing `--bare` remains accepted; `--bare=x` and
 `--bare=TRUE` pass through unchanged. They also fail closed on unmergeable
 host defaults. These are new
 installed compatibility restrictions. On that installed build, SIGHUP can
-leave the private interactive launch directory. The later lifecycle source
-change, not yet installed, makes SIGHUP owned termination: the launcher
-forwards it to native, waits, removes only its own private directory and
-returns native's status, while an inherited ignored SIGHUP stays ignored. A
-panic, SIGKILL or a Go stack-dump signal such as SIGQUIT can still leave the
-directory, and a descendant that outlives the launcher keeps a dangling
-defaults path.
+leave the private interactive launch directory, and SIGTERM, forwarded only
+to the direct child, kills Qwen's `cli-entry.js` bootstrap while the TUI two
+levels below keeps running. The later lifecycle source change, not yet
+installed, ends the launcher's native job on SIGHUP or SIGTERM: every
+identity-checked descendant in the launcher's process group, the TUI
+included, receives the signal before the direct child, and the directory is
+removed only after all have exited, within 10 s; a member still running then
+keeps the directory and is named on stderr. With the installed bootstrap the
+launcher exits 1. An inherited ignored SIGHUP stays ignored for the launcher
+only, because Node resets it. A panic, SIGKILL or a Go stack-dump signal
+such as SIGQUIT can still leave the directory, and descendants outside the
+process group, such as detached shell tools, keep a dangling defaults path.
 
 On that installed build, managed idle QWK924R (cell `c153b1e0`, independent
 review `edc29e93`) and managed active QWQ924R (`a890ca68`, review `c2d90c03`)

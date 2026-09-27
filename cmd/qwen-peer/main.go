@@ -87,11 +87,19 @@ func runEntry(ctx context.Context, basename string, arguments []string) error {
 	return run(ctx, arguments)
 }
 
+// adoptNativeOrphans is replaced by tests that pin which entries adopt.
+var adoptNativeOrphans = qwen.AdoptNativeOrphans
+
 func run(ctx context.Context, arguments []string) error {
 	if !host.LaneMode() {
 		plan, err := qwen.InteractivePlan(arguments, os.Environ())
 		if err != nil {
 			return err
+		}
+		// Only an integrated launch owns a native job and a launch directory.
+		// Lane workers, qwen-peer-mcp and native passthrough never adopt.
+		if qwen.IntegratedLaunch(plan) {
+			defer adoptNativeOrphans()()
 		}
 		return qwen.RunInteractive(ctx, plan)
 	}

@@ -3,6 +3,7 @@ package qwen
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -111,8 +113,9 @@ func TestLaunchDirectoryCleanupReportsOnlyWhatItLeaves(t *testing.T) {
 }
 
 // NotifyInteractive registers every listed signal before it returns; main
-// calls it before runEntry, and no other launcher code registers a signal.
-// Together: no signal is left to Go's default exit once the directory exists.
+// calls it before runEntry, and no other launcher code registers a
+// terminating signal (the orphan reaper registers only SIGCHLD). Together:
+// no signal is left to Go's default exit once the directory exists.
 func TestSignalRegistrationOnlyInNotifyInteractive(t *testing.T) {
 	sources, e := filepath.Glob("*.go")
 	must(t, e)
@@ -131,7 +134,7 @@ func TestSignalRegistrationOnlyInNotifyInteractive(t *testing.T) {
 			ast.Inspect(function.Body, func(node ast.Node) bool {
 				if call, ok := node.(*ast.CallExpr); ok {
 					if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
-						if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "signal" && strings.HasPrefix(selector.Sel.Name, "Notify") {
+						if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "signal" && strings.HasPrefix(selector.Sel.Name, "Notify") && !onlySIGCHLD(call.Args[1:]) {
 							registrations = append(registrations, function.Name.Name)
 						}
 					}
@@ -165,7 +168,8 @@ func TestNotifyInteractiveRecordsFirstSignal(t *testing.T) {
 }
 
 // A launch cancelled by a recorded signal forwards that signal; any other
-// cancellation keeps forwarding SIGTERM. The child's status is returned.
+// cancellation keeps forwarding SIGTERM. A single-level native's own status is
+// returned.
 func TestRunInteractiveForwardsCancellingSignal(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -216,6 +220,16 @@ while [ -e "$READY" ]; do sleep 0.02; done
 	}
 }
 
+func onlySIGCHLD(signals []ast.Expr) bool {
+	for _, expression := range signals {
+		selector, ok := expression.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "SIGCHLD" {
+			return false
+		}
+	}
+	return len(signals) != 0
+}
+
 // Cancellation before native starts still removes the launch directory, and
 // native is never started.
 func TestRunInteractiveCancelledBeforeNativeStart(t *testing.T) {
@@ -236,4 +250,214 @@ func TestRunInteractiveCancelledBeforeNativeStart(t *testing.T) {
 	entries, err := os.ReadDir(tmp)
 	must(t, err)
 	check(t, len(entries) == 0, "launch directory left after pre-start cancellation: %v", entries)
+}
+
+// startSignalFixtureChain runs installed Qwen's native topology (bootstrap,
+// supervisor, TUI) through RunInteractive in this process, which does not
+// adopt orphans: the path macOS always takes. It returns once the TUI runs.
+func startSignalFixtureChain(t *testing.T, ctx context.Context) (records string, result chan error, chain []nativeProcessIdentity) {
+	t.Helper()
+	bin, records := t.TempDir(), t.TempDir()
+	stub := filepath.Join(bin, "qwen")
+	must(t, os.WriteFile(stub, []byte("#!/bin/sh\nexec \"$QWEN_SIGNAL_FIXTURE_EXECUTABLE\" -test.run '^TestInteractiveSignalNativeFixture$' -- \"$@\"\n"), 0700))
+	executable, e := os.Executable()
+	must(t, e)
+	env := append(os.Environ(), "QWEN_SIGNAL_FIXTURE_EXECUTABLE="+executable, "QWEN_SIGNAL_FIXTURE_RECORDS="+records, "QWEN_SIGNAL_FIXTURE_MODE=exit",
+		"QWEN_SIGNAL_FIXTURE_ROLE=bootstrap", "QWEN_SIGNAL_FIXTURE_HOLD=1")
+	result = make(chan error, 1)
+	go func() { result <- RunInteractive(ctx, host.ExecPlan{Path: stub, Env: env}) }()
+	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(records, "release"), nil, 0600)
+		for _, p := range chain {
+			signalNativeTestProcess(p, syscall.SIGKILL)
+		}
+	})
+	var launch signalFixtureLaunch
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if data, e := os.ReadFile(filepath.Join(records, "launch.json")); e == nil && json.Unmarshal(data, &launch) == nil {
+			break
+		}
+		check(t, time.Now().Before(deadline), "fixture chain did not start")
+	}
+	tui := mustInspect(t, launch.PID)
+	supervisor := mustInspect(t, tui.parent)
+	bootstrap := mustInspect(t, supervisor.parent)
+	check(t, bootstrap.parent == os.Getpid(), "bootstrap %+v is not this process's child", bootstrap)
+	return records, result, []nativeProcessIdentity{bootstrap, supervisor, tui}
+}
+
+// Without adoption, the job is listed before the direct child is signalled
+// (its death reparents the supervisor and TUI away), and every chain process
+// is gone when RunInteractive returns.
+func TestRunInteractiveEndsNativeChainWithoutAdoption(t *testing.T) {
+	check(t, !nativeOrphansAdopted.Load(), "test process adopts orphans")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	records, result, chain := startSignalFixtureChain(t, ctx)
+	cancel(launchSignal{syscall.SIGHUP})
+	var err error
+	select {
+	case err = <-result:
+	case <-time.After(20 * time.Second):
+		t.Fatal("RunInteractive did not return")
+	}
+	var exit *exec.ExitError
+	check(t, errors.As(err, &exit) && exit.Sys().(syscall.WaitStatus).Signaled(), "bootstrap exit %v, want death by the signal", err)
+	data, e := os.ReadFile(filepath.Join(records, "signal-1.json"))
+	var receipt signalFixtureReceipt
+	check(t, e == nil && json.Unmarshal(data, &receipt) == nil && receipt.Signal == syscall.SIGHUP.String(), "TUI receipt %s (%v)", data, e)
+	for _, p := range chain {
+		current, e := inspectNativeProcess(p.pid)
+		check(t, e != nil || current.start != p.start, "chain process %d outlived RunInteractive", p.pid)
+	}
+}
+
+// The job is the launcher's live descendants in its own process group, less
+// the direct child: not processes in another session, not orphans that left
+// the launcher's tree, not the launcher's own ancestors.
+func TestNativeJobScope(t *testing.T) {
+	check(t, !nativeOrphansAdopted.Load(), "test process adopts orphans")
+	records := t.TempDir()
+	executable, e := os.Executable()
+	must(t, e)
+	direct := exec.Command(executable, "-test.run", "^TestNativeJobScopeFixture$")
+	direct.Env = append(os.Environ(), "QWEN_JOB_SCOPE_RECORDS="+records, "QWEN_JOB_SCOPE_ROLE=direct")
+	must(t, direct.Start())
+	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(records, "release"), nil, 0600)
+		_ = direct.Wait()
+	})
+	pids := map[string]int{}
+	for deadline := time.Now().Add(10 * time.Second); len(pids) < 4; time.Sleep(10 * time.Millisecond) {
+		check(t, time.Now().Before(deadline), "job scope fixture did not start: %v", pids)
+		for _, role := range []string{"member", "session", "orphan", "ready"} {
+			if data, e := os.ReadFile(filepath.Join(records, role)); e == nil {
+				if pid, e := strconv.Atoi(strings.TrimSpace(string(data))); e == nil {
+					pids[role] = pid
+				}
+			}
+		}
+	}
+	directIdentity := mustInspect(t, direct.Process.Pid)
+	orphan := mustInspect(t, pids["orphan"])
+	check(t, orphan.parent != direct.Process.Pid, "orphan %d is still in the launcher's tree", pids["orphan"])
+	owned, _ := nativeJob(directIdentity)
+	listed := map[int]bool{}
+	for _, p := range owned {
+		listed[p.pid] = true
+	}
+	check(t, listed[pids["member"]], "same-group descendant %d not in job %v", pids["member"], owned)
+	for name, pid := range map[string]int{"direct child": direct.Process.Pid, "other-session descendant": pids["session"], "orphan outside the tree": pids["orphan"], "launcher": os.Getpid(), "launcher's parent": os.Getppid()} {
+		check(t, !listed[pid], "%s %d listed in job %v", name, pid, owned)
+	}
+}
+
+// TestNativeJobScopeFixture builds the process shapes for TestNativeJobScope.
+func TestNativeJobScopeFixture(t *testing.T) {
+	records := os.Getenv("QWEN_JOB_SCOPE_RECORDS")
+	if records == "" {
+		return
+	}
+	hold := func() {
+		for {
+			_, released := os.Stat(filepath.Join(records, "release"))
+			_, present := os.Stat(records)
+			if released == nil || present != nil {
+				os.Exit(0)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	spawn := func(role string, attributes *syscall.SysProcAttr) *exec.Cmd {
+		command := exec.Command(os.Args[0], "-test.run", "^TestNativeJobScopeFixture$")
+		command.Env = append(os.Environ(), "QWEN_JOB_SCOPE_ROLE="+role)
+		command.SysProcAttr = attributes
+		if command.Start() != nil {
+			os.Exit(90)
+		}
+		return command
+	}
+	record := func(role string, pid int) {
+		if os.WriteFile(filepath.Join(records, role), []byte(strconv.Itoa(pid)), 0600) != nil {
+			os.Exit(91)
+		}
+	}
+	switch os.Getenv("QWEN_JOB_SCOPE_ROLE") {
+	case "direct":
+		record("member", spawn("hold", nil).Process.Pid)
+		record("session", spawn("hold", &syscall.SysProcAttr{Setsid: true}).Process.Pid)
+		// The intermediate exits at once, so its child leaves this tree.
+		_ = spawn("orphan-parent", nil).Wait()
+		record("ready", os.Getpid())
+		hold()
+	case "orphan-parent":
+		record("orphan", spawn("hold", nil).Process.Pid)
+		os.Exit(0)
+	case "hold":
+		hold()
+	}
+}
+
+// Delivery checks identity: a PID whose start time differs, or which no
+// longer exists, is never signalled.
+func TestSignalNativeJobNeverSignalsAnotherProcess(t *testing.T) {
+	directory := t.TempDir()
+	ready, record := filepath.Join(directory, "ready"), filepath.Join(directory, "record")
+	child := exec.Command("sh", "-c", `trap 'echo hangup >"$RECORD"' HUP; : >"$READY"; while [ -e "$READY" ]; do sleep 0.02; done`)
+	child.Env = append(os.Environ(), "READY="+ready, "RECORD="+record)
+	must(t, child.Start())
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, e := os.Stat(ready); e == nil {
+			break
+		}
+		check(t, time.Now().Before(deadline), "stub did not start")
+	}
+	live := mustInspect(t, child.Process.Pid)
+	stale := live
+	stale.start = live.start + "0"
+	signalNativeJob([]nativeProcessIdentity{stale, {pid: 1 << 30, start: live.start}}, syscall.SIGHUP)
+	time.Sleep(200 * time.Millisecond)
+	_, e := os.Stat(record)
+	check(t, errors.Is(e, os.ErrNotExist), "a process with another start identity was signalled: %v", e)
+	signalNativeJob([]nativeProcessIdentity{live}, syscall.SIGHUP)
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if data, e := os.ReadFile(record); e == nil && string(data) == "hangup\n" {
+			break
+		}
+		check(t, time.Now().Before(deadline), "the verified process was not signalled")
+	}
+}
+
+// The job wait is bounded and reports what is still running.
+func TestWaitNativeJobIsBounded(t *testing.T) {
+	child := exec.Command("sleep", "30")
+	must(t, child.Start())
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	live := mustInspect(t, child.Process.Pid)
+	started := time.Now()
+	survivors := waitNativeJob([]nativeProcessIdentity{live}, 150*time.Millisecond)
+	check(t, len(survivors) == 1 && survivors[0] == live && time.Since(started) >= 150*time.Millisecond, "survivors %v after %s", survivors, time.Since(started))
+	must(t, child.Process.Kill())
+	_ = child.Wait()
+	check(t, len(waitNativeJob([]nativeProcessIdentity{live}, time.Minute)) == 0, "an exited process was reported as a survivor")
+}
+
+// Without a child subreaper (macOS), orphans reparented to PID 1 are awaited,
+// never signalled, when they are live, in the launcher's group, not already
+// listed, and started no earlier than the direct child.
+func TestLaunchdOrphanHeuristic(t *testing.T) {
+	entry := func(pid, group int, started uint64, live bool) nativeProcessEntry {
+		return nativeProcessEntry{nativeProcessIdentity: nativeProcessIdentity{pid: pid, parent: 1, start: fmt.Sprint(started)}, group: group, started: started, live: live}
+	}
+	orphans := []nativeProcessEntry{
+		entry(10, 7, 100, true), // the TUI orphaned by its bootstrap's death
+		entry(11, 7, 50, true),  // started before the direct child
+		entry(12, 8, 100, true), // another process group
+		entry(13, 7, 100, false),
+		entry(14, 7, 100, true), // already listed
+		entry(15, 7, 99, true),  // started just before the direct child
+	}
+	got := launchdOrphans(orphans, map[int]bool{14: true}, 7, 100)
+	check(t, len(got) == 1 && got[0].pid == 10, "launchd orphan candidates %+v, want only pid 10", got)
 }

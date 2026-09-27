@@ -83,3 +83,40 @@ func TestMainRegistersSignalsBeforeRunEntry(t *testing.T) {
 		t.Fatalf("main must call notify before runEntry: %v", calls)
 	}
 }
+
+// Only an integrated interactive launch makes the launcher a child subreaper
+// and starts the orphan reaper. Lane workers, the private MCP entry and native
+// passthrough never do. PATH holds no native, so nothing is ever started.
+func TestOnlyIntegratedLaunchAdoptsNativeOrphans(t *testing.T) {
+	calls := 0
+	original := adoptNativeOrphans
+	adoptNativeOrphans = func() func() { calls++; return func() {} }
+	t.Cleanup(func() { adoptNativeOrphans = original })
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(qwen.LaneEndpointEnv, "")
+	t.Setenv(qwen.InteractiveEnv, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	t.Setenv(host.TokenEnv, "token")
+	if err := run(ctx, []string{"--acp"}); err == nil {
+		t.Fatal("lane entry accepted arguments")
+	}
+	if err := runEntry(ctx, qwen.PrivateAlias, nil); err == nil {
+		t.Fatal("private entry without a binding succeeded")
+	}
+	if err := os.Unsetenv(host.TokenEnv); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, []string{"mcp", "list"}); err == nil {
+		t.Fatal("passthrough found a native in an empty PATH")
+	}
+	if calls != 0 {
+		t.Fatalf("lane, private and passthrough entries adopted orphans %d times", calls)
+	}
+	if err := run(ctx, []string{"-n", "chosen"}); err == nil {
+		t.Fatal("integrated launch found a native in an empty PATH")
+	}
+	if calls != 1 {
+		t.Fatalf("integrated launch adopted orphans %d times, want 1", calls)
+	}
+}

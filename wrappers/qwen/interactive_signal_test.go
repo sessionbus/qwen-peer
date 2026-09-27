@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -25,6 +26,7 @@ import (
 
 type signalFixtureLaunch struct {
 	PID           int
+	Parent        int
 	Args          []string
 	Env           []string
 	Directory     string
@@ -36,6 +38,14 @@ type signalFixtureLaunch struct {
 type signalFixtureReceipt struct {
 	Signal          string
 	DefaultsPresent bool
+}
+
+type signalFixtureExit struct {
+	DefaultsPresent bool
+}
+
+type signalFixtureLevel struct {
+	PID, Parent int
 }
 
 type signalFixtureDescendant struct {
@@ -51,11 +61,16 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 	if records == "" {
 		return
 	}
-	if os.Getenv("QWEN_SIGNAL_FIXTURE_ROLE") == "descendant" {
+	switch os.Getenv("QWEN_SIGNAL_FIXTURE_ROLE") {
+	case "descendant":
 		runSignalFixtureDescendant(records)
+	case "bootstrap":
+		runSignalFixtureLevel(records, "bootstrap", "supervisor")
+	case "supervisor":
+		runSignalFixtureLevel(records, "supervisor", "native")
 	}
 	// Read the inherited SIGHUP disposition before Notify replaces it.
-	launch := signalFixtureLaunch{PID: os.Getpid(), Env: os.Environ(), DefaultsPath: os.Getenv(laneSystemDefaultsEnv), HangupIgnored: signal.Ignored(syscall.SIGHUP)}
+	launch := signalFixtureLaunch{PID: os.Getpid(), Parent: os.Getppid(), Env: os.Environ(), DefaultsPath: os.Getenv(laneSystemDefaultsEnv), HangupIgnored: signal.Ignored(syscall.SIGHUP)}
 	received := make(chan os.Signal, 8)
 	signal.Notify(received, syscall.SIGHUP, syscall.SIGTERM, os.Interrupt)
 	index := 0
@@ -90,12 +105,24 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 	}
 	eof := make(chan struct{})
 	go func() { _, _ = io.Copy(io.Discard, os.Stdin); close(eof) }()
+	release := time.NewTicker(20 * time.Millisecond)
 	for count := 1; ; count++ {
 		var s os.Signal
-		select {
-		case s = <-received:
-		case <-eof:
-			os.Exit(37)
+		for s == nil {
+			select {
+			case s = <-received:
+			case <-eof:
+				if os.Getenv("QWEN_SIGNAL_FIXTURE_HOLD") != "" {
+					eof = nil // stdin is not the test's to close
+					continue
+				}
+				os.Exit(37)
+			case <-release.C:
+				// A stubborn native outlives every signal until released.
+				if _, e := os.Stat(filepath.Join(records, "release")); e == nil || mode == "stubborn" && func() bool { _, e := os.Stat(records); return e != nil }() {
+					os.Exit(0)
+				}
+			}
 		}
 		_, e := os.Stat(launch.DefaultsPath)
 		data, _ := json.Marshal(signalFixtureReceipt{Signal: s.String(), DefaultsPresent: e == nil})
@@ -104,7 +131,7 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 		}
 		number := s.(syscall.Signal)
 		switch {
-		case count > 1:
+		case count > 1, mode == "stubborn":
 		case mode == "raise":
 			signal.Reset(s)
 			_ = syscall.Kill(os.Getpid(), number)
@@ -113,11 +140,50 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 			for i := 0; i < 2000; i++ {
 				_ = os.WriteFile(filepath.Join(launch.Directory, fmt.Sprintf("native-%d", i)), nil, 0600)
 			}
-			time.AfterFunc(300*time.Millisecond, func() { os.Exit(128 + int(number)) })
+			time.AfterFunc(300*time.Millisecond, func() {
+				_, e := os.Stat(launch.DefaultsPath)
+				data, _ := json.Marshal(signalFixtureExit{DefaultsPresent: e == nil})
+				_ = publishPublicFixtureFile(filepath.Join(records, "exit.json"), data)
+				os.Exit(128 + int(number))
+			})
 		default:
 			os.Exit(128 + int(number))
 		}
 	}
+}
+
+// runSignalFixtureLevel mirrors one bootstrap level of installed Qwen 0.24.3:
+// cli-entry.js, which spawnSyncs the next level, and the cli.js supervisor,
+// which spawns the TUI. It records itself, runs the next level with inherited
+// stdio and installs no signal handling: Go's default dies on HUP, TERM and
+// INT, as Node's does for a process without listeners. It ends like its model:
+// the bootstrap re-raises a child's terminating signal, the supervisor exits
+// with the child's code, or 1 after a signal ("process.exit(code ?? 1)").
+func runSignalFixtureLevel(records, role, next string) {
+	data, _ := json.Marshal(signalFixtureLevel{PID: os.Getpid(), Parent: os.Getppid()})
+	if publishPublicFixtureFile(filepath.Join(records, role+".json"), data) != nil {
+		os.Exit(89)
+	}
+	if delay, _ := time.ParseDuration(os.Getenv("QWEN_SIGNAL_FIXTURE_BOOT_DELAY")); role == "bootstrap" && delay > 0 {
+		time.Sleep(delay)
+	}
+	child := exec.Command(os.Args[0], os.Args[1:]...)
+	child.Env = append(os.Environ(), "QWEN_SIGNAL_FIXTURE_ROLE="+next)
+	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
+	var exit *exec.ExitError
+	if err := child.Run(); err == nil {
+		os.Exit(0)
+	} else if !errors.As(err, &exit) {
+		os.Exit(98)
+	}
+	if status := exit.Sys().(syscall.WaitStatus); status.Signaled() {
+		if role == "bootstrap" {
+			_ = syscall.Kill(os.Getpid(), status.Signal())
+			time.Sleep(time.Second)
+		}
+		os.Exit(1)
+	}
+	os.Exit(exit.ExitCode())
 }
 
 func runSignalFixtureDescendant(records string) {
@@ -138,7 +204,7 @@ func runSignalFixtureDescendant(records string) {
 
 type signalLaunch struct {
 	command      *exec.Cmd
-	input        io.WriteCloser
+	input        io.Closer
 	done         chan struct{}
 	err          error
 	records, tmp string
@@ -146,9 +212,47 @@ type signalLaunch struct {
 	env          []string
 	launch       signalFixtureLaunch
 	hostDefaults string
+	// launcher is the qwen-peer process; chain is its native processes, from
+	// the direct child down to the TUI, pinned by start identity.
+	launcher int
+	chain    []nativeProcessIdentity
+	// A non-leader launch runs under a shell that leads the process group and
+	// also runs an unrelated sibling; the shell records the launcher status.
+	sibling    nativeProcessIdentity
+	statusPath string
+}
+
+type launchTopology int
+
+const (
+	// The launcher leads its own process group (a shell job).
+	groupLeader launchTopology = iota
+	// The launcher leads its session and, where a PTY is available, is the
+	// terminal's controlling process (the harness topology).
+	sessionLeader
+	// The launcher is an ordinary member of its caller's process group, next
+	// to an unrelated sibling process.
+	nonLeader
+)
+
+type signalLaunchOptions struct {
+	mode         string
+	ignoreHangup bool
+	// chain runs installed Qwen's topology: bootstrap, supervisor, then TUI.
+	chain     bool
+	bootDelay time.Duration
+	topology  launchTopology
+	// hold keeps native running past stdin EOF: os/exec closes the stdin
+	// pipe as soon as it has waited for the launcher.
+	hold bool
 }
 
 func startSignalLaunch(t *testing.T, public, mode string, ignoreHangup bool) *signalLaunch {
+	t.Helper()
+	return startSignalLaunchWith(t, public, signalLaunchOptions{mode: mode, ignoreHangup: ignoreHangup})
+}
+
+func startSignalLaunchWith(t *testing.T, public string, options signalLaunchOptions) *signalLaunch {
 	t.Helper()
 	bin, records, tmp := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "tmp")
 	must(t, os.Mkdir(tmp, 0700))
@@ -162,22 +266,49 @@ func startSignalLaunch(t *testing.T, public, mode string, ignoreHangup bool) *si
 		key, _, _ := strings.Cut(entry, "=")
 		return strings.HasPrefix(key, "SESSIONBUS_") || strings.HasPrefix(key, "QWEN_") || key == "PATH" || key == "TMPDIR"
 	})
-	env = append(env, "PATH="+bin+":"+os.Getenv("PATH"), "TMPDIR="+tmp, "QWEN_SIGNAL_FIXTURE_EXECUTABLE="+executable, "QWEN_SIGNAL_FIXTURE_RECORDS="+records, "QWEN_SIGNAL_FIXTURE_MODE="+mode,
+	env = append(env, "PATH="+bin+":"+os.Getenv("PATH"), "TMPDIR="+tmp, "QWEN_SIGNAL_FIXTURE_EXECUTABLE="+executable, "QWEN_SIGNAL_FIXTURE_RECORDS="+records, "QWEN_SIGNAL_FIXTURE_MODE="+options.mode,
 		"SESSIONBUS_SESSION_ID=stale", nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"="+hostDefaults)
+	if options.chain {
+		env = append(env, "QWEN_SIGNAL_FIXTURE_ROLE=bootstrap", "QWEN_SIGNAL_FIXTURE_BOOT_DELAY="+options.bootDelay.String())
+	}
+	if options.hold {
+		env = append(env, "QWEN_SIGNAL_FIXTURE_HOLD=1")
+	}
 	args := []string{"-n", "chosen", "-g", "a"}
 	command := exec.Command(public, args...)
-	if ignoreHangup {
+	l := &signalLaunch{done: make(chan struct{}), records: records, tmp: tmp, output: filepath.Join(bin, "launcher.out"), env: env, hostDefaults: hostDefaults}
+	switch {
+	case options.ignoreHangup:
 		// A shell with SIGHUP ignored models nohup: exec keeps SIG_IGN.
 		command = exec.Command("sh", append([]string{"-c", `trap '' HUP; exec "$0" "$@"`, public}, args...)...)
+	case options.topology == nonLeader:
+		l.statusPath = filepath.Join(bin, "status")
+		command = exec.Command("sh", append([]string{"-c", `sleep 60 & echo $! >"$QWEN_SIGNAL_FIXTURE_SIBLING"; "$0" "$@"; echo $? >"$QWEN_SIGNAL_FIXTURE_STATUS"`, public}, args...)...)
+		env = append(env, "QWEN_SIGNAL_FIXTURE_SIBLING="+filepath.Join(bin, "sibling"), "QWEN_SIGNAL_FIXTURE_STATUS="+l.statusPath)
 	}
 	command.Env = env
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	input, e := command.StdinPipe()
-	must(t, e)
-	output, e := os.Create(filepath.Join(bin, "launcher.out"))
+	output, e := os.Create(l.output)
 	must(t, e)
 	defer output.Close()
-	command.Stdout, command.Stderr = output, output
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var terminal *os.File
+	if options.topology == sessionLeader {
+		var master *os.File
+		master, terminal = openTestPTY(t)
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if terminal != nil {
+			command.SysProcAttr.Setctty, command.SysProcAttr.Ctty = true, 0
+			command.Stdin, command.Stdout, command.Stderr = terminal, terminal, terminal
+			l.input = master
+			go func() { _, _ = io.Copy(output, master) }()
+		}
+	}
+	if l.input == nil {
+		input, e := command.StdinPipe()
+		must(t, e)
+		l.input = input
+		command.Stdout, command.Stderr = output, output
+	}
 	p, e := inspectNativeProcess(os.Getpid())
 	must(t, e)
 	watch, e := newInteractiveWatch(p)
@@ -185,26 +316,144 @@ func startSignalLaunch(t *testing.T, public, mode string, ignoreHangup bool) *si
 	defer watch.close()
 	must(t, watch.add(records))
 	must(t, command.Start())
-	l := &signalLaunch{command: command, input: input, done: make(chan struct{}), records: records, tmp: tmp, output: output.Name(), env: env, hostDefaults: hostDefaults}
+	if terminal != nil {
+		_ = terminal.Close()
+	}
+	l.command = command
 	go func() { l.err = command.Wait(); close(l.done) }()
 	t.Cleanup(func() {
-		_ = input.Close()
+		_ = l.input.Close()
 		select {
 		case <-l.done:
 		case <-time.After(10 * time.Second):
-			// The unreaped launcher still leads its own process group.
+			// The unreaped leader still leads its own process group.
 			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		}
 		_ = os.WriteFile(filepath.Join(records, "release"), nil, 0600)
+		if l.sibling.pid != 0 {
+			signalNativeTestProcess(l.sibling, syscall.SIGKILL)
+		}
 	})
-	waitFileCondition(t, watch, func() bool {
-		data, e := os.ReadFile(filepath.Join(records, "launch.json"))
-		return e == nil && json.Unmarshal(data, &l.launch) == nil
-	})
-	check(t, strings.HasPrefix(l.launch.Directory, tmp+string(filepath.Separator)+"sessionbus-qwen-launch-"), "launch directory %q is not the launcher's private temporary directory", l.launch.Directory)
-	check(t, l.launch.DefaultsPath == filepath.Join(l.launch.Directory, "system-defaults.json"), "native defaults path %q", l.launch.DefaultsPath)
-	check(t, l.launch.HangupIgnored == ignoreHangup, "native inherited SIGHUP ignored=%v, want %v", l.launch.HangupIgnored, ignoreHangup)
+	l.launcher = command.Process.Pid
+	if options.chain && options.bootDelay > 0 {
+		var bootstrap signalFixtureLevel
+		waitFileCondition(t, watch, func() bool {
+			data, e := os.ReadFile(filepath.Join(records, "bootstrap.json"))
+			return e == nil && json.Unmarshal(data, &bootstrap) == nil
+		})
+		l.launcher = bootstrap.Parent
+		l.chain = []nativeProcessIdentity{mustInspect(t, bootstrap.PID)}
+		entries, e := os.ReadDir(tmp)
+		must(t, e)
+		check(t, len(entries) == 1, "launch directory before native start: %v", entries)
+		l.launch.Directory = filepath.Join(tmp, entries[0].Name())
+	} else {
+		waitFileCondition(t, watch, func() bool {
+			data, e := os.ReadFile(filepath.Join(records, "launch.json"))
+			return e == nil && json.Unmarshal(data, &l.launch) == nil
+		})
+		check(t, strings.HasPrefix(l.launch.Directory, tmp+string(filepath.Separator)+"sessionbus-qwen-launch-"), "launch directory %q is not the launcher's private temporary directory", l.launch.Directory)
+		check(t, l.launch.DefaultsPath == filepath.Join(l.launch.Directory, "system-defaults.json"), "native defaults path %q", l.launch.DefaultsPath)
+		check(t, l.launch.HangupIgnored == options.ignoreHangup, "native inherited SIGHUP ignored=%v, want %v", l.launch.HangupIgnored, options.ignoreHangup)
+		// Walk up from the TUI to the launcher: one level, or three for the chain.
+		l.chain = []nativeProcessIdentity{mustInspect(t, l.launch.PID)}
+		for levels := 1; options.chain && levels < 3; levels++ {
+			l.chain = append([]nativeProcessIdentity{mustInspect(t, l.chain[0].parent)}, l.chain...)
+		}
+		l.launcher = l.chain[0].parent
+	}
+	launcher := mustInspect(t, l.launcher)
+	if options.topology == nonLeader {
+		var sibling int
+		waitFileCondition(t, watch, func() bool {
+			data, e := os.ReadFile(filepath.Join(bin, "sibling"))
+			if e != nil {
+				return false
+			}
+			sibling, e = strconv.Atoi(strings.TrimSpace(string(data)))
+			return e == nil
+		})
+		l.sibling = mustInspect(t, sibling)
+		check(t, launcher.parent == command.Process.Pid && l.launcher != command.Process.Pid, "launcher %d is not a non-leader child of shell %d", l.launcher, command.Process.Pid)
+	} else if !options.ignoreHangup {
+		check(t, l.launcher == command.Process.Pid, "launcher %d is not the started process %d", l.launcher, command.Process.Pid)
+	}
 	return l
+}
+
+func mustInspect(t *testing.T, pid int) nativeProcessIdentity {
+	t.Helper()
+	p, e := inspectNativeProcess(pid)
+	must(t, e)
+	return p
+}
+
+// signalNativeTestProcess signals p only while it is still that process.
+func signalNativeTestProcess(p nativeProcessIdentity, sig syscall.Signal) {
+	if current, e := inspectNativeProcess(p.pid); e == nil && current.start == p.start {
+		_ = syscall.Kill(p.pid, sig)
+	}
+}
+
+func (l *signalLaunch) alive(processes ...nativeProcessIdentity) []int {
+	alive := []int{}
+	for _, p := range processes {
+		if current, e := inspectNativeProcess(p.pid); e == nil && current.start == p.start {
+			alive = append(alive, p.pid)
+		}
+	}
+	return alive
+}
+
+// observeRemoval records which chain processes are still alive at the moment
+// the launch directory disappears. The returned function waits for that
+// moment; it fails if the directory is never removed.
+func (l *signalLaunch) observeRemoval(t *testing.T) func() []int {
+	t.Helper()
+	result, stop := make(chan []int, 1), make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go func() {
+		for {
+			if _, e := os.Lstat(l.launch.Directory); errors.Is(e, os.ErrNotExist) {
+				result <- l.alive(l.chain...)
+				return
+			}
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}()
+	return func() []int {
+		t.Helper()
+		select {
+		case alive := <-result:
+			return alive
+		case <-time.After(15 * time.Second):
+			t.Fatal("launch directory was never removed")
+			return nil
+		}
+	}
+}
+
+// launcherExit returns the launcher's exit code, or -1 with its killing
+// signal. A non-leader launcher's status is recorded by its shell.
+func (l *signalLaunch) launcherExit(t *testing.T) (int, syscall.Signal) {
+	t.Helper()
+	code, killed := l.wait(t)
+	if l.statusPath == "" {
+		return code, killed
+	}
+	check(t, code == 0 && killed == 0, "non-leader shell exit: code=%d signal=%v", code, killed)
+	data, e := os.ReadFile(l.statusPath)
+	must(t, e)
+	status, e := strconv.Atoi(strings.TrimSpace(string(data)))
+	must(t, e)
+	if status > 128 {
+		return -1, syscall.Signal(status - 128)
+	}
+	return status, 0
 }
 
 // wait returns the launcher's exit code, or -1 with the signal that killed it.
@@ -212,7 +461,7 @@ func (l *signalLaunch) wait(t *testing.T) (int, syscall.Signal) {
 	t.Helper()
 	select {
 	case <-l.done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("launcher did not exit")
 	}
 	err := l.err
@@ -369,6 +618,107 @@ func exercisePackagedInteractiveSignals(t *testing.T, public string) {
 		entries, e := os.ReadDir(l.tmp)
 		must(t, e)
 		check(t, len(entries) == 1 && filepath.Join(l.tmp, entries[0].Name()) == l.launch.Directory, "refused directory not left in place: %v", entries)
+	})
+	// Installed Qwen runs its TUI three levels below the launcher: a bootstrap
+	// (cli-entry.js spawnSync) runs a supervisor (the cli.js relaunch) that
+	// runs the TUI, and neither bootstrap level handles HUP or TERM. A signal
+	// to the LAUNCHER must still reach the TUI, and every chain process must
+	// be gone at the moment the launch directory is removed. The bootstrap
+	// dies by the signal, so the launcher's existing mapping reports 1.
+	for _, tc := range []struct {
+		name     string
+		signal   syscall.Signal
+		topology launchTopology
+		group    bool
+	}{
+		{"chain-hup-group-leader", syscall.SIGHUP, groupLeader, false},
+		{"chain-term-group-leader", syscall.SIGTERM, groupLeader, false},
+		{"chain-hup-session-leader", syscall.SIGHUP, sessionLeader, false},
+		{"chain-term-session-leader", syscall.SIGTERM, sessionLeader, false},
+		{"chain-hup-non-leader-sibling-survives", syscall.SIGHUP, nonLeader, false},
+		{"chain-term-non-leader-sibling-survives", syscall.SIGTERM, nonLeader, false},
+		// A terminal or job hangup reaches every process of the group at once;
+		// the bootstrap dies before the launcher handles its own copy.
+		{"chain-group-hup", syscall.SIGHUP, groupLeader, true},
+		{"chain-group-term", syscall.SIGTERM, groupLeader, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "slow", chain: true, topology: tc.topology})
+			removed := l.observeRemoval(t)
+			target := l.launcher
+			if tc.group {
+				target = -target
+			}
+			must(t, syscall.Kill(target, tc.signal))
+			aliveAtRemoval := removed()
+			code, killed := l.launcherExit(t)
+			check(t, killed == 0 && code == 1, "launcher code=%d signal=%v, want exit 1 from the signalled bootstrap", code, killed)
+			check(t, len(aliveAtRemoval) == 0, "native processes %v alive when the launch directory was removed", aliveAtRemoval)
+			receipts := l.receipts(t)
+			check(t, len(receipts) >= 1 && receipts[0] == signalFixtureReceipt{Signal: tc.signal.String(), DefaultsPresent: true}, "native TUI receipts %+v, want %v before cleanup", receipts, tc.signal)
+			var exit signalFixtureExit
+			data, e := os.ReadFile(filepath.Join(l.records, "exit.json"))
+			check(t, e == nil && json.Unmarshal(data, &exit) == nil && exit.DefaultsPresent, "native TUI exit record %s (%v)", data, e)
+			check(t, len(l.alive(l.chain...)) == 0, "native processes %v survive the launcher", l.alive(l.chain...))
+			l.assertNoResidue(t)
+			if tc.topology == nonLeader {
+				check(t, len(l.alive(l.sibling)) == 1, "unrelated sibling %d in the caller's process group was signalled", l.sibling.pid)
+			}
+		})
+	}
+	// A signal before the TUI exists: only the bootstrap runs, and it ends
+	// the launch without ever starting the supervisor.
+	for _, tc := range []struct {
+		name     string
+		signal   syscall.Signal
+		topology launchTopology
+	}{
+		{"chain-startup-hup-group-leader", syscall.SIGHUP, groupLeader},
+		{"chain-startup-term-group-leader", syscall.SIGTERM, groupLeader},
+		{"chain-startup-hup-non-leader-sibling-survives", syscall.SIGHUP, nonLeader},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "slow", chain: true, bootDelay: 2 * time.Second, topology: tc.topology})
+			removed := l.observeRemoval(t)
+			must(t, syscall.Kill(l.launcher, tc.signal))
+			aliveAtRemoval := removed()
+			code, killed := l.launcherExit(t)
+			check(t, killed == 0 && code == 1, "launcher code=%d signal=%v, want exit 1", code, killed)
+			check(t, len(aliveAtRemoval) == 0, "bootstrap %v alive when the launch directory was removed", aliveAtRemoval)
+			for _, record := range []string{"supervisor.json", "launch.json"} {
+				_, e := os.Stat(filepath.Join(l.records, record))
+				check(t, errors.Is(e, os.ErrNotExist), "native started after the startup signal: %s (%v)", record, e)
+			}
+			l.assertNoResidue(t)
+			if tc.topology == nonLeader {
+				check(t, len(l.alive(l.sibling)) == 1, "unrelated sibling %d in the caller's process group was signalled", l.sibling.pid)
+			}
+		})
+	}
+	t.Run("chain-survivor-at-bound-keeps-directory", func(t *testing.T) {
+		// The TUI ignores the signal: the launcher waits for the bound, keeps
+		// the directory, names the survivor once and keeps its exit mapping.
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "stubborn", chain: true, hold: true})
+		tui := l.chain[len(l.chain)-1]
+		must(t, syscall.Kill(l.launcher, syscall.SIGHUP))
+		code, killed := l.wait(t)
+		check(t, killed == 0 && code == 1, "launcher code=%d signal=%v, want exit 1", code, killed)
+		check(t, len(l.alive(tui)) == 1, "stubborn TUI %d did not survive to the bound", tui.pid)
+		output, e := os.ReadFile(l.output)
+		must(t, e)
+		reports := []string{}
+		for _, line := range strings.Split(string(output), "\n") {
+			if strings.HasPrefix(line, "qwen-peer: left private launch directory ") {
+				reports = append(reports, line)
+			}
+		}
+		want := fmt.Sprintf("qwen-peer: left private launch directory %s: native processes still running after 10s: pid %d", l.launch.Directory, tui.pid)
+		check(t, len(reports) == 1 && reports[0] == want, "survivor reports %q, want one %q", reports, want)
+		_, e = os.Stat(l.launch.Directory)
+		check(t, e == nil, "launch directory removed while TUI %d still ran: %v", tui.pid, e)
+		receipts := l.receipts(t)
+		check(t, len(receipts) >= 1 && receipts[0].Signal == syscall.SIGHUP.String(), "stubborn TUI receipts %+v", receipts)
+		must(t, os.WriteFile(filepath.Join(l.records, "release"), nil, 0600))
 	})
 	t.Run("hup-descendant-outlives-launcher", func(t *testing.T) {
 		l := startSignalLaunch(t, public, "descendant", false)

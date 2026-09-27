@@ -167,6 +167,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	}
 	args := slices.Clone(plan.Args)
 	defaultsPath := ""
+	var survivors []nativeProcessIdentity
 	if environmentValue(plan.Env, InteractiveEnv) == "launch" {
 		alias, e := InstalledMCPExecutable()
 		if e != nil {
@@ -182,8 +183,15 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 			return e
 		}
 		directory = absolute
-		// Removed once, on return, after any started child is reaped.
-		defer cleanupLaunchDirectory(os.Stderr, directory, os.Getuid())
+		// Removed once, on return, after any started native job has ended. A
+		// job still running at the wait bound keeps it; the exit status stays.
+		defer func() {
+			if len(survivors) != 0 {
+				fmt.Fprintf(os.Stderr, "qwen-peer: left private launch directory %s: native processes still running after %s: %s\n", directory, nativeJobWait, describeNativeJob(survivors))
+				return
+			}
+			cleanupLaunchDirectory(os.Stderr, directory, os.Getuid())
+		}()
 		cwd, e := os.Getwd()
 		if e != nil {
 			return e
@@ -233,24 +241,73 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
+	nativeDirectChild.Store(-1)
 	if err = child.Start(); err != nil {
+		nativeDirectChild.Store(0)
 		return err
 	}
+	nativeDirectChild.Store(int64(child.Process.Pid))
+	defer nativeDirectChild.Store(0)
+	direct, _ := inspectNativeProcess(child.Process.Pid)
 	done := make(chan error, 1)
 	go func() { done <- child.Wait() }()
+	var forward syscall.Signal
 	select {
 	case err = <-done:
+		// A TERM or HUP to the whole job can kill the direct child (Qwen's
+		// bootstrap) before this launcher handles its own copy. The job still
+		// ends here: its members get that signal and are awaited.
+		var ended bool
+		if forward, ended = nativeJobSignal(ctx, err); !ended {
+			return err
+		}
+		owned, waitOnly := nativeJob(direct)
+		signalNativeJob(owned, forward)
+		survivors = waitNativeJob(joinNativeJobs(owned, waitOnly), nativeJobWait)
 		return err
 	case <-ctx.Done():
-		// Forward the signal that ended the launch; other cancellation is TERM.
-		forward := os.Signal(syscall.SIGTERM)
-		var received launchSignal
-		if errors.As(context.Cause(ctx), &received) {
-			forward = received.Signal
-		}
-		if e := child.Process.Signal(forward); e != nil && !errors.Is(e, os.ErrProcessDone) {
-			return errors.Join(e, <-done)
-		}
-		return <-done
+		forward = forwardedSignal(ctx)
 	}
+	// List the job before signalling: the direct child's death reparents its
+	// descendants. They receive the signal first, the direct child last.
+	owned, _ := nativeJob(direct)
+	signalNativeJob(owned, forward)
+	if e := child.Process.Signal(forward); e != nil && !errors.Is(e, os.ErrProcessDone) {
+		err = errors.Join(e, <-done)
+	} else {
+		err = <-done
+	}
+	// Orphans exist only once the direct child has died: list the job again.
+	after, waitOnly := nativeJob(direct)
+	survivors = waitNativeJob(joinNativeJobs(owned, after, waitOnly), nativeJobWait)
+	return err
+}
+
+// forwardedSignal is the signal that ended the launch; other cancellation is
+// TERM.
+func forwardedSignal(ctx context.Context) syscall.Signal {
+	var received launchSignal
+	if errors.As(context.Cause(ctx), &received) {
+		if s, ok := received.Signal.(syscall.Signal); ok {
+			return s
+		}
+	}
+	return syscall.SIGTERM
+}
+
+// nativeJobSignal reports whether a direct child that has already exited
+// still leaves a job to end, and with which signal: the launch was cancelled,
+// or the child itself was killed by TERM or HUP. A normal exit, or death by
+// any other signal (SIGINT included), leaves the job as it is.
+func nativeJobSignal(ctx context.Context, err error) (syscall.Signal, bool) {
+	if ctx.Err() != nil {
+		return forwardedSignal(ctx), true
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() && (status.Signal() == syscall.SIGTERM || status.Signal() == syscall.SIGHUP) {
+			return status.Signal(), true
+		}
+	}
+	return 0, false
 }

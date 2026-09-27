@@ -104,26 +104,45 @@
 > host-defaults-absent path, not every compatibility edge. The installed
 > `2ba3e12` build can leave the private launch directory (`input.jsonl`,
 > `events.fifo`, `system-defaults.json`, `owner.claim`) behind on SIGHUP.
-> The later lifecycle source change, not yet installed, handles SIGHUP like
-> TERM: the launcher forwards the received signal to its direct native child,
-> waits for it, removes that one directory and returns the child's status.
-> Interactive Qwen 0.23.0 and 0.24.4 bundles exit 129 after SIGHUP; the
-> installed 0.24.3 was not re-read. Removal refuses any path that is
+> Like every earlier build, it also forwards SIGTERM only to its direct
+> child, and installed Qwen's direct child is not the TUI: `cli-entry.js`
+> spawnSyncs a `cli.js` supervisor, which spawns the TUI, and neither
+> bootstrap level handles or forwards SIGHUP or SIGTERM. A signal to the
+> launcher alone therefore killed the bootstrap and left the TUI running.
+> The later lifecycle source change, not yet installed, makes SIGHUP and
+> SIGTERM end the launcher's native job: its live descendants in its own
+> process group, listed by pid and start time. Every still-identical member,
+> the TUI included, receives the signal, then the direct child. The launcher
+> removes the directory only after all of them have exited, waiting at most
+> 10 s; a member still running then keeps the directory, and one stderr line
+> names it. On Linux an integrated launch makes the launcher a child
+> subreaper, so a TUI orphaned when a job or terminal hangup kills the
+> bootstrap first is still awaited; macOS instead waits, without signalling,
+> for same-group orphans reparented to launchd that started after the direct
+> child, which is a heuristic. The exit status remains the direct child's:
+> the installed bootstrap dies by the signal, so the launcher exits 1, not
+> the TUI's own 129 or 143. Removal refuses any path that is
 > not the launcher's own private directory; a refusal is reported in one
-> stderr line without changing the exit status. An inherited ignored SIGHUP, as
-> under `nohup`, stays ignored for launcher and native. A panic, SIGKILL or a
+> stderr line without changing the exit status. An inherited ignored SIGHUP,
+> as under `nohup`, stays ignored for the launcher only: Node resets it at
+> startup, so native Qwen still ends on a job or terminal hangup, and the
+> launcher then ends and awaits the rest of its job. A panic, SIGKILL or a
 > Go stack-dump signal such as SIGQUIT can still leave the directory behind.
-> A descendant that outlives the launcher, for example one in a new session,
-> is neither signalled nor awaited; it keeps a dangling path to the removed
-> defaults file. The conflict check sees
+> Descendants that leave the launcher's process group, such as Qwen's
+> detached shell tools, are neither signalled nor awaited and keep a
+> dangling defaults path; processes started after the job is listed are not
+> awaited. The conflict check sees
 > inherited `QWEN_CODE_SIMPLE`, but native `.env` or settings `env` entries
 > can set `QWEN_CODE_SIMPLE` and enable bare mode after the wrapper's check;
 > Skill hiding therefore depends on the effective native configuration and
 > is not guaranteed for every configuration source. This inherited residual
 > applies to managed and interactive. The lifecycle change leaves native
-> policy, arguments, environment and input unchanged; tests cover TERM,
-> SIGHUP, a process-group hangup, a signal storm during cleanup, `nohup`,
-> launcher-only SIGINT and the outliving descendant.
+> policy, arguments, environment and input unchanged. Its tests run installed
+> Qwen's three-level topology and signal the launcher as a process-group
+> leader, as a PTY session leader and as a non-leader next to an unrelated
+> process, which survives. They also cover job-wide hangups, a signal before
+> the TUI starts, a member still running at the bound, identity checks and
+> a descendant outside the process group.
 
 > Installed acceptance at `2ba3e12` is surface-specific. The managed-idle
 > QWK924R and managed-active QWQ924R regressions are independently reviewed
