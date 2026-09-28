@@ -55,7 +55,7 @@ func TestManagedQwenArgumentsRejectDirectDisable(t *testing.T) {
 }
 
 func TestManagedQwenGrantAndYoloCoexistInBothModes(t *testing.T) {
-	plan, err := InteractivePlan([]string{"--yolo", "--approval-mode", "yolo", "--sandbox"}, nil)
+	plan, err := InteractivePlan([]string{"--yolo", "--approval-mode", "yolo", "--sandbox"}, []string{ControllerTokenEnv + "=" + fixtureControllerToken})
 	must(t, err)
 	wantPeer := []string{"--yolo", "--approval-mode", "yolo", "--sandbox", "--allowed-tools", managedQwenTool}
 	check(t, reflect.DeepEqual(plan.Args, wantPeer), "interactive arguments = %q", plan.Args)
@@ -73,15 +73,16 @@ func TestManagedQwenGrantAndYoloCoexistInBothModes(t *testing.T) {
 }
 
 func TestManagedQwenGrantPreservesInteractivePositionalsAndBoundary(t *testing.T) {
-	plan, err := InteractivePlan([]string{"fix", "the bug"}, nil)
+	env := []string{ControllerTokenEnv + "=" + fixtureControllerToken}
+	plan, err := InteractivePlan([]string{"fix", "the bug"}, env)
 	must(t, err)
 	check(t, reflect.DeepEqual(plan.Args, []string{"fix", "the bug", "--allowed-tools", managedQwenTool}), "positional arguments = %q", plan.Args)
 
-	plan, err = InteractivePlan([]string{"fix", "--", "--literal"}, nil)
+	plan, err = InteractivePlan([]string{"fix", "--", "--literal"}, env)
 	must(t, err)
 	check(t, reflect.DeepEqual(plan.Args, []string{"fix", "--allowed-tools", managedQwenTool, "--", "--literal"}), "boundary arguments = %q", plan.Args)
 
-	plan, err = InteractivePlan([]string{"--allowed-tools", "other", "caller positional"}, nil)
+	plan, err = InteractivePlan([]string{"--allowed-tools", "other", "caller positional"}, env)
 	must(t, err)
 	check(t, reflect.DeepEqual(plan.Args, []string{"--allowed-tools", "other", "caller positional", "--allowed-tools", managedQwenTool}), "caller array semantics changed = %q", plan.Args)
 }

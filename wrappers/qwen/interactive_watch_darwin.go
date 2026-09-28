@@ -8,19 +8,18 @@ import (
 )
 
 type interactiveWatch struct {
-	fd       int
-	launcher int
-	pipe     [2]int
-	mu       sync.Mutex
-	paths    map[string]int
-	closed   bool
-	changed  chan struct{}
-	failed   chan error
-	done     chan struct{}
-	stop     sync.Once
+	fd      int
+	pipe    [2]int
+	mu      sync.Mutex
+	paths   map[string]int
+	closed  bool
+	changed chan struct{}
+	failed  chan error
+	done    chan struct{}
+	stop    sync.Once
 }
 
-func newInteractiveWatch(parent nativeProcessIdentity, launcher ...nativeProcessIdentity) (*interactiveWatch, error) {
+func newInteractiveWatch(parent nativeProcessIdentity) (*interactiveWatch, error) {
 	w := &interactiveWatch{paths: map[string]int{}, changed: make(chan struct{}, 1), failed: make(chan error, 1), done: make(chan struct{})}
 	var err error
 	w.fd, err = unix.Kqueue()
@@ -35,10 +34,6 @@ func newInteractiveWatch(parent nativeProcessIdentity, launcher ...nativeProcess
 	unix.CloseOnExec(w.pipe[0])
 	unix.CloseOnExec(w.pipe[1])
 	changes := []unix.Kevent_t{{Ident: uint64(parent.pid), Filter: unix.EVFILT_PROC, Flags: unix.EV_ADD | unix.EV_ENABLE | unix.EV_ONESHOT, Fflags: unix.NOTE_EXIT}, {Ident: uint64(w.pipe[0]), Filter: unix.EVFILT_READ, Flags: unix.EV_ADD | unix.EV_ENABLE}}
-	if len(launcher) != 0 {
-		w.launcher = launcher[0].pid
-		changes = append(changes, unix.Kevent_t{Ident: uint64(w.launcher), Filter: unix.EVFILT_PROC, Flags: unix.EV_ADD | unix.EV_ENABLE | unix.EV_ONESHOT, Fflags: unix.NOTE_EXIT})
-	}
 	_, err = unix.Kevent(w.fd, changes, nil, nil)
 	current, inspectErr := inspectNativeProcess(parent.pid)
 	if err != nil || inspectErr != nil || current != parent {
@@ -46,15 +41,6 @@ func newInteractiveWatch(parent nativeProcessIdentity, launcher ...nativeProcess
 		unix.Close(w.pipe[0])
 		unix.Close(w.pipe[1])
 		return nil, errors.Join(errors.New("native parent changed before observation"), err, inspectErr)
-	}
-	if len(launcher) != 0 {
-		current, err := inspectNativeProcess(launcher[0].pid)
-		if err != nil || current != launcher[0] {
-			unix.Close(w.fd)
-			unix.Close(w.pipe[0])
-			unix.Close(w.pipe[1])
-			return nil, errors.Join(errors.New("Qwen launcher changed before observation"), err)
-		}
 	}
 	go w.run()
 	return w, nil
@@ -117,11 +103,7 @@ func (w *interactiveWatch) run() {
 				return
 			}
 			if event.Filter == unix.EVFILT_PROC {
-				if int(event.Ident) == w.launcher {
-					w.failed <- errors.New("Qwen launcher exited")
-				} else {
-					w.failed <- errors.New("native Qwen parent exited")
-				}
+				w.failed <- errors.New("native Qwen parent exited")
 				return
 			}
 			if event.Fflags&(unix.NOTE_DELETE|unix.NOTE_RENAME) != 0 {

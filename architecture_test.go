@@ -222,15 +222,18 @@ func TestRetainedManifestCommandReachability(t *testing.T) {
 		}
 	}
 	skills, err := filepath.Glob("qwen/skills/*/SKILL.md")
-	if err != nil || len(skills) != 1 || skills[0] != "qwen/skills/sessionbus/SKILL.md" {
-		t.Fatalf("Qwen generic skill inventory = %v (%v)", skills, err)
+	if err != nil || len(skills) != 0 {
+		t.Fatalf("Qwen must use static context rather than an invokable skill: %v (%v)", skills, err)
 	}
-	var plugin struct{ Name, Version string }
-	if err := json.Unmarshal(read(t, "qwen/plugin.json"), &plugin); err != nil {
+	var plugin struct{ Name, Version, ContextFileName string }
+	if err := json.Unmarshal(read(t, "qwen/qwen-extension.json"), &plugin); err != nil {
 		t.Fatal(err)
 	}
-	if plugin.Name != "sessionbus" || plugin.Version != "0.4.0" {
+	if plugin.Name != "sessionbus" || plugin.Version != "0.4.0" || plugin.ContextFileName != "SESSIONBUS.md" {
 		t.Errorf("Qwen native plugin identity changed: %#v", plugin)
+	}
+	if len(read(t, "qwen/SESSIONBUS.md")) == 0 {
+		t.Error("Qwen static context is empty")
 	}
 	qwenLane := read(t, "wrappers/qwen/qwen.go")
 	if !bytes.Contains(qwenLane, []byte("InstalledMCPExecutable()")) || !bytes.Contains(qwenLane, []byte("laneMCPServer(endpoint.Path, mcpExecutable)")) {

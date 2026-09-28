@@ -11,19 +11,19 @@ import (
 // One bounded directory watcher and a pidfd observe this helper's native
 // parent. No polling interval is used as an input-watcher readiness signal.
 type interactiveWatch struct {
-	fd, parent, launcher int
-	pipe                 [2]int
-	mu                   sync.Mutex
-	paths                map[string]bool
-	closed               bool
-	changed              chan struct{}
-	failed               chan error
-	done                 chan struct{}
-	stop                 sync.Once
+	fd, parent int
+	pipe       [2]int
+	mu         sync.Mutex
+	paths      map[string]bool
+	closed     bool
+	changed    chan struct{}
+	failed     chan error
+	done       chan struct{}
+	stop       sync.Once
 }
 
-func newInteractiveWatch(parent nativeProcessIdentity, launcher ...nativeProcessIdentity) (*interactiveWatch, error) {
-	w := &interactiveWatch{fd: -1, parent: -1, launcher: -1, paths: map[string]bool{}, changed: make(chan struct{}, 1), failed: make(chan error, 1), done: make(chan struct{})}
+func newInteractiveWatch(parent nativeProcessIdentity) (*interactiveWatch, error) {
+	w := &interactiveWatch{fd: -1, parent: -1, paths: map[string]bool{}, changed: make(chan struct{}, 1), failed: make(chan error, 1), done: make(chan struct{})}
 	var err error
 	w.fd, err = unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	if err != nil {
@@ -46,20 +46,6 @@ func newInteractiveWatch(parent nativeProcessIdentity, launcher ...nativeProcess
 		unix.Close(w.pipe[0])
 		unix.Close(w.pipe[1])
 		return nil, errors.Join(errors.New("native parent changed before observation"), err)
-	}
-	if len(launcher) != 0 {
-		w.launcher, err = unix.PidfdOpen(launcher[0].pid, 0)
-		current, inspectErr := inspectNativeProcess(launcher[0].pid)
-		if err != nil || inspectErr != nil || current != launcher[0] {
-			unix.Close(w.fd)
-			unix.Close(w.parent)
-			unix.Close(w.pipe[0])
-			unix.Close(w.pipe[1])
-			if w.launcher >= 0 {
-				unix.Close(w.launcher)
-			}
-			return nil, errors.Join(errors.New("Qwen launcher changed before observation"), err, inspectErr)
-		}
 	}
 	go w.run()
 	return w, nil
@@ -94,17 +80,11 @@ func (w *interactiveWatch) run() {
 		w.mu.Lock()
 		defer w.mu.Unlock()
 		w.closed = true
-		if w.launcher >= 0 {
-			unix.Close(w.launcher)
-		}
 		unix.Close(w.fd)
 		unix.Close(w.parent)
 		unix.Close(w.pipe[0])
 	}()
 	fds := []unix.PollFd{{Fd: int32(w.pipe[0]), Events: unix.POLLIN}, {Fd: int32(w.parent), Events: unix.POLLIN}, {Fd: int32(w.fd), Events: unix.POLLIN}}
-	if w.launcher >= 0 {
-		fds = append(fds, unix.PollFd{Fd: int32(w.launcher), Events: unix.POLLIN})
-	}
 	buffer := make([]byte, 64<<10)
 	for {
 		_, err := unix.Poll(fds, -1)
@@ -120,10 +100,6 @@ func (w *interactiveWatch) run() {
 		}
 		if fds[1].Revents != 0 {
 			w.failed <- errors.New("native Qwen parent exited")
-			return
-		}
-		if len(fds) > 3 && fds[3].Revents != 0 {
-			w.failed <- errors.New("Qwen launcher exited")
 			return
 		}
 		if fds[2].Revents == 0 {

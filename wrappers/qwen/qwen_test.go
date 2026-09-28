@@ -19,6 +19,7 @@ import (
 	"github.com/sessionbus/peer-common/testsocket"
 )
 
+const laneSystemDefaultsEnv = "QWEN_CODE_SYSTEM_DEFAULTS_PATH"
 const fixtureID = "11111111-2222-4333-8444-555555555555"
 
 func TestMain(m *testing.M) {
@@ -303,13 +304,12 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	args := child["args"].([]any)
 	check(t, len(args) == 9 && reflect.DeepEqual(args[:7], []any{"--acp", "--yolo", "-m", "model", "--screen-reader", "--allowed-tools", managedQwenTool}) && args[7] == "--mcp-config", "args = %#v", args)
 	check(t, args[8] == filepath.Join(p.visibilityDir, "mcp-config.json"), "MCP config path = %#v", args[8])
-	check(t, child[laneSystemDefaultsEnv] == filepath.Join(p.visibilityDir, "system-defaults.json"), "defaults path = %#v", child[laneSystemDefaultsEnv])
+	check(t, child[laneSystemDefaultsEnv] == hostDefaults, "native host defaults override changed = %#v", child[laneSystemDefaultsEnv])
 	check(t, filepath.IsAbs(args[8].(string)), "MCP config path is relative")
-	check(t, filepath.IsAbs(child[laneSystemDefaultsEnv].(string)), "system defaults path is relative")
 	dirInfo, err := os.Stat(p.visibilityDir)
 	must(t, err)
 	check(t, dirInfo.Mode().Perm() == 0o700, "lane config directory mode = %o", dirInfo.Mode().Perm())
-	for _, private := range []string{args[8].(string), child[laneSystemDefaultsEnv].(string)} {
+	for _, private := range []string{args[8].(string)} {
 		info, err := os.Stat(private)
 		must(t, err)
 		check(t, info.Mode().Perm() == 0o600, "lane config file mode = %o", info.Mode().Perm())
@@ -325,10 +325,8 @@ func TestOpenResumeUsesCapturedACPShapesAndScrubsBusEnv(t *testing.T) {
 	must(t, err)
 	check(t, server["command"] == filepath.Join(filepath.Dir(canonicalTestExecutable), PrivateAlias), "CLI MCP executable = %#v", server["command"])
 	check(t, server["env"].(map[string]any)[LaneEndpointEnv] == p.endpoint.Path, "CLI MCP endpoint = %#v", server["env"])
-	var defaults map[string]any
-	must(t, json.Unmarshal(mustRead(t, child[laneSystemDefaultsEnv].(string)), &defaults))
-	check(t, reflect.DeepEqual(defaults["skills"].(map[string]any)["disabled"], []any{"other:skill", managedSkillName}), "defaults = %#v", defaults)
-	check(t, reflect.DeepEqual(defaults["tools"], map[string]any{"visible": []any{"Bash"}}), "host tools policy changed: %#v", defaults)
+	_, err = os.Stat(filepath.Join(p.visibilityDir, "system-defaults.json"))
+	check(t, os.IsNotExist(err), "obsolete Skill-hiding defaults file created: %v", err)
 	check(t, reflect.DeepEqual(mustRead(t, hostDefaults), hostDefaultsContent), "host defaults were mutated")
 	check(t, child["lane_socket"] == "", "legacy lane socket reached native: %#v", child["lane_socket"])
 	for _, name := range []string{host.SocketEnv, host.LocalKeyEnv, host.TokenEnv, host.SessionIDEnv, host.NameEnv, host.GroupsEnv} {
