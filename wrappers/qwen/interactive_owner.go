@@ -207,9 +207,13 @@ func (b *interactiveOwner) observe() error {
 			return errors.New("native Qwen inbox became unavailable")
 		}
 		if row != nil && row.IPCPath != "" {
-			if !published || row.Name != lastName || row.CWD != lastCWD {
-				b.desire(*row, row.Name)
-				published, lastName, lastCWD = true, row.Name, row.CWD
+			name := row.Name
+			if b.launch.Name != "" {
+				name = b.launch.Name
+			}
+			if !published || name != lastName || row.CWD != lastCWD {
+				b.desire(*row, name)
+				published, lastName, lastCWD = true, name, row.CWD
 				if busDone == nil {
 					b.caller = kit.NewCaller(b.Call)
 					busDone = make(chan struct{})

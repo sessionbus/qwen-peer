@@ -110,7 +110,12 @@ reconnects the same helper and identity; supersession is terminal.
 For `-n`, the wrapper supplies a single native interactive `/rename -- NAME`
 startup command. It refuses a caller startup `-i`/`-p` or arguments after `--`
 that would compete for that input; it never overwrites a caller prompt.
-Without `-n`, caller native arguments and the `--` boundary are preserved.
+The validated `-n` value is also the initial Sessionbus display name. Qwen's
+native `custom_title` controls the TUI title, while the native registry name
+shown by `qwen sessions ps` may retain its launch default. Later native
+`/rename` changes the TUI title; it is not promised to mirror to Sessionbus.
+Without `-n`, caller native arguments and the `--` boundary are preserved, and
+the Sessionbus display follows the observed native registry name.
 Native selectors, permission choices and chat-recording choices remain native.
 Integrated `--no-chat-recording` is supported. Native subcommands and
 help/version pass through without integration or controller-token exposure.

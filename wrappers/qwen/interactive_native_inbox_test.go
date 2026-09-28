@@ -316,6 +316,54 @@ func TestNativeOwnerReconnectAndSupersession(t *testing.T) {
 	}
 }
 
+func TestNativeOwnerExplicitNameSurvivesRegistryChangeAndReconnect(t *testing.T) {
+	b, bus := nativeInboxFixture(t)
+	b.launch.Name = "chosen"
+	listener, err := net.Listen("unix", bus)
+	must(t, err)
+	defer listener.Close()
+	inbox := filepath.Join(t.TempDir(), "native.sock")
+	publishNativeRegistry(t, b, inbox, "first")
+	b.Initialized()
+	for attempt := 0; attempt < 2; attempt++ {
+		_ = listener.(*net.UnixListener).SetDeadline(time.Now().Add(5 * time.Second))
+		c, err := listener.Accept()
+		must(t, err)
+		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+		dec, enc := json.NewDecoder(c), json.NewEncoder(c)
+		var hello struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params struct {
+				Name string `json:"name"`
+			} `json:"params"`
+		}
+		must(t, dec.Decode(&hello))
+		if hello.Method != "session.hello" || hello.Params.Name != "chosen" {
+			t.Fatalf("explicit name lost on connection %d: %+v", attempt, hello)
+		}
+		must(t, enc.Encode(map[string]any{"jsonrpc": "2.0", "id": hello.ID, "result": map[string]any{}}))
+		if attempt == 0 {
+			publishNativeRegistry(t, b, inbox, "second")
+			_ = c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+			if err := dec.Decode(&hello); err == nil {
+				t.Fatalf("registry name overrode explicit launch name: %+v", hello)
+			} else if timeout, ok := err.(net.Error); !ok || !timeout.Timeout() {
+				t.Fatalf("unexpected first connection result: %v", err)
+			}
+			must(t, c.Close())
+			continue
+		}
+		must(t, enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session.superseded", "params": map[string]any{}}))
+		select {
+		case <-b.done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("supersession did not end explicitly named helper")
+		}
+		_ = c.Close()
+	}
+}
+
 func TestNativeRegistryInitialCWDMustMatchHelper(t *testing.T) {
 	b, _ := nativeInboxFixture(t)
 	publishNativeRegistry(t, b, filepath.Join(t.TempDir(), "native.sock"), "name")
