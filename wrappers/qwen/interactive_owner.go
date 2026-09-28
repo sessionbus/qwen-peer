@@ -17,7 +17,6 @@ import (
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 	"github.com/sessionbus/peer-common/host"
 	"github.com/sessionbus/peer-common/mcp"
-	"golang.org/x/sys/unix"
 )
 
 const InteractiveEnv = "SESSIONBUS_QWEN_INTERACTIVE"
@@ -26,12 +25,11 @@ const nativeSessionEnv = "QWEN_CODE_SESSION_ID"
 // Resource locators and launch identity are explicit MCP configuration, not a
 // substitute for native session identity. This JSON contains no secret/token.
 type interactiveLaunch struct {
-	Directory string   `json:"directory"`
-	PID       int      `json:"pid"`
-	Start     string   `json:"start"`
-	Socket    string   `json:"socket"`
-	Groups    []string `json:"groups"`
-	Name      string   `json:"name"`
+	PID    int      `json:"pid"`
+	Start  string   `json:"start"`
+	Socket string   `json:"socket"`
+	Groups []string `json:"groups"`
+	Name   string   `json:"name"`
 }
 
 type interactiveOwner struct {
@@ -41,6 +39,8 @@ type interactiveOwner struct {
 	launch      interactiveLaunch
 	parent      nativeProcessIdentity
 	home, id    string
+	cwd         string
+	token       string
 	conn        *kit.Connection
 	caller      *kit.Caller
 	ready, done chan struct{}
@@ -49,7 +49,7 @@ type interactiveOwner struct {
 	err         error
 	work        sync.WaitGroup
 	slots       chan struct{}
-	appendGate  chan struct{}
+	writeGate   chan struct{}
 	identity    kit.PeerIdentity
 	revision    uint64
 	admitted    bool
@@ -62,7 +62,7 @@ type interactiveOwner struct {
 func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*interactiveOwner, error) {
 	var launch interactiveLaunch
 	raw := environmentValue(env, InteractiveEnv)
-	if len(raw) > maxInteractiveMCPConfig || json.Unmarshal([]byte(raw), &launch) != nil || launch.PID <= 1 || launch.Start == "" || !filepath.IsAbs(launch.Directory) || !filepath.IsAbs(launch.Socket) {
+	if len(raw) > maxInteractiveMCPConfig || json.Unmarshal([]byte(raw), &launch) != nil || launch.PID <= 1 || launch.Start == "" || !filepath.IsAbs(launch.Socket) {
 		return nil, errors.New("Qwen managed launch binding is missing or invalid")
 	}
 	if launch.Name != "" {
@@ -76,12 +76,8 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 	if !qwenSessionID.MatchString(id) {
 		return nil, errors.New("native QWEN_CODE_SESSION_ID is missing or invalid")
 	}
-	info, err := os.Lstat(launch.Directory)
-	if err != nil {
-		return nil, err
-	}
-	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
-		return nil, errors.New("Qwen launch directory must be private")
+	if !validControllerToken(environmentValue(env, ControllerTokenEnv)) {
+		return nil, errors.New("Qwen Sessionbus controller grant is missing or invalid")
 	}
 	parent, err := bindNativeParent(parentPID, launch.PID, launch.Start)
 	if err != nil {
@@ -99,8 +95,12 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 	if err != nil {
 		return nil, err
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 	lifetime, cancel := context.WithCancel(ctx)
-	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}, 32), appendGate: make(chan struct{}, 1)}
+	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, cwd: cwd, token: environmentValue(env, ControllerTokenEnv), ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}), writeGate: make(chan struct{}, 1)}
 	b.changed = make(chan struct{}, 1)
 	b.dial = (&net.Dialer{}).DialContext
 	b.retry = func(ctx context.Context) bool {
@@ -113,7 +113,7 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 			return true
 		}
 	}
-	b.appendGate <- struct{}{}
+	b.writeGate <- struct{}{}
 	return b, nil
 }
 
@@ -151,32 +151,15 @@ func (b *interactiveOwner) run() {
 	}
 }
 
-func (b *interactiveOwner) observe() (retErr error) {
+func (b *interactiveOwner) observe() error {
 	if err := b.ctx.Err(); err != nil {
 		return err
 	}
-	launcher, err := inspectNativeProcess(b.launch.PID)
-	if err != nil {
-		return err
-	}
-	if launcher.start != b.launch.Start {
-		return errors.New("Qwen launcher identity changed")
-	}
-	watch, err := newInteractiveWatch(b.parent, launcher)
+	watch, err := newInteractiveWatch(b.parent)
 	if err != nil {
 		return err
 	}
 	defer watch.close()
-	claim, e := os.OpenFile(filepath.Join(b.launch.Directory, "owner.claim"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if errors.Is(e, os.ErrExist) {
-		return errors.New("Qwen launch already had an integration owner; exit and launch/resume again")
-	}
-	if e != nil {
-		return e
-	}
-	if e = claim.Close(); e != nil {
-		return e
-	}
 	observed := make(chan struct{})
 	go func() {
 		defer close(observed)
@@ -192,31 +175,6 @@ func (b *interactiveOwner) observe() (retErr error) {
 		}
 	}()
 	defer func() { b.cancel(); <-observed }()
-	events, err := openNativeEvents(b.ctx, filepath.Join(b.launch.Directory, "events.fifo"), func(e error) {
-		b.mu.Lock()
-		if b.err == nil {
-			b.err = e
-		}
-		b.mu.Unlock()
-		b.cancel()
-	})
-	if err != nil {
-		return err
-	}
-	defer events.close()
-	var session initialNativeSession
-	var history nativeRecords
-	var title nativeManualTitle
-	bound, renamed, published := false, false, false
-	defer func() {
-		if retErr != nil && renamed && !published {
-			retErr = errors.Join(retErr, errors.New("native initial rename was not confirmed"))
-		}
-		if retErr != nil && !bound {
-			retErr = errors.Join(retErr, errors.New("initial native session/registry binding did not complete"))
-		}
-	}()
-	lastTitle := ""
 	var busDone chan struct{}
 	defer func() {
 		if busDone != nil {
@@ -224,70 +182,48 @@ func (b *interactiveOwner) observe() (retErr error) {
 			<-busDone
 		}
 	}()
+	var published bool
+	var lastName string
+	var lastCWD string
+	startup := time.NewTimer(30 * time.Second)
+	defer startup.Stop()
 	for {
-		if err = b.ctx.Err(); err != nil {
+		if err := b.ctx.Err(); err != nil {
 			return err
 		}
-		// Add before reading: an append/publication between scan and wait must
-		// leave a notification. Missing descendant directories are watched via
-		// their nearest existing parent and added on its next event.
-		paths := []string{b.launch.Directory, b.home, filepath.Join(b.home, "sessions"), filepath.Join(b.home, "projects")}
-		if history.path != "" {
-			chats := filepath.Dir(history.path)
-			paths = append(paths, filepath.Dir(chats), chats, history.path)
-		}
-		for _, path := range paths {
+		for _, path := range []string{b.home, filepath.Join(b.home, "sessions")} {
 			if e := watch.add(path); e != nil && !errors.Is(e, os.ErrNotExist) {
 				return e
 			}
 		}
-		if !bound {
-			if session.ID != "" {
-				if session.ID != b.id {
-					return errors.New("first native session_start contradicts helper session identity")
-				}
-				bound, err = readInitialRegistry(b.home, b.parent, session)
-				if err != nil {
-					return err
-				}
-				if bound {
+		row, err := readNativeRegistry(b.home, b.parent, b.id)
+		if err != nil {
+			return err
+		}
+		if !published && row != nil && row.CWD != b.cwd {
+			return errors.New("native registry CWD differs from the native MCP helper CWD")
+		}
+		if published && (row == nil || row.IPCPath == "") {
+			return errors.New("native Qwen inbox became unavailable")
+		}
+		if row != nil && row.IPCPath != "" {
+			if !published || row.Name != lastName || row.CWD != lastCWD {
+				b.desire(*row, row.Name)
+				published, lastName, lastCWD = true, row.Name, row.CWD
+				if busDone == nil {
 					b.caller = kit.NewCaller(b.Call)
-					history.path = nativeHistoryPath(b.home, session.CWD, b.id)
-					continue
+					busDone = make(chan struct{})
+					go func() { defer close(busDone); b.reconnect() }()
 				}
-			}
-		} else {
-			if err = history.read(func(line []byte) error {
-				if e := b.ctx.Err(); e != nil {
-					return e
-				}
-				return title.observe(b.id, line)
-			}); err != nil {
-				return err
-			}
-			if b.launch.Name != "" && !renamed {
-				// Existing history does not confirm this launch's rename. Submit
-				// once only after current-launch registry and watcher ordering.
-				title.observed = false
-				if err = b.append(b.ctx, "/rename -- "+b.launch.Name); err != nil {
-					return err
-				}
-				renamed = true
-			} else if !published && (b.launch.Name == "" || title.observed && title.value == b.launch.Name) {
-				b.desire(session, title.value)
-				published = true
-				lastTitle = title.value
-				busDone = make(chan struct{})
-				go func() { defer close(busDone); b.reconnect() }()
-			} else if published && title.observed && title.value != lastTitle {
-				b.desire(session, title.value)
-				lastTitle = title.value
 			}
 		}
 		select {
 		case <-b.ctx.Done():
 			return b.ctx.Err()
-		case session = <-events.initial:
+		case <-startup.C:
+			if !published {
+				return errors.New("native Qwen inbox did not become available; check peer inbox settings and the controller grant")
+			}
 		case <-watch.changed:
 		}
 	}
@@ -295,7 +231,7 @@ func (b *interactiveOwner) observe() (retErr error) {
 
 // Native observation owns desired identity; the single transport loop owns
 // connection attempts. Neither an outage nor a retry repeats native admission.
-func (b *interactiveOwner) desire(session initialNativeSession, title string) {
+func (b *interactiveOwner) desire(session nativeRegistry, title string) {
 	b.mu.Lock()
 	// Renaming this session does not revoke its existing connection admission.
 	// A different identity, or connect's replacement transport, must hello first.
@@ -499,10 +435,10 @@ func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit
 			}
 			body, e := host.RenderNativeMessage(*request)
 			if e == nil {
-				e = b.append(ctx, body)
+				e = b.deliverNative(ctx, body)
 			}
 			if e != nil {
-				err = c.Error(r, -32603, "native input write failed; no replay")
+				err = c.Error(r, -32603, "native inbox write failed; no replay")
 			} else {
 				err = c.Result(r, kit.DeliveryReceipt{Disposition: "written"})
 			}
@@ -520,42 +456,89 @@ func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit
 	}
 }
 
-func (b *interactiveOwner) append(ctx context.Context, text string) error {
-	body, err := json.Marshal(map[string]string{"type": "submit", "text": text})
-	if err != nil {
-		return err
-	}
-	if len(body) > maxInteractiveRecord {
-		return errors.New("native input record exceeds 8 MiB")
-	}
-	body = append(body, '\n')
+// A written receipt covers only the bounded local socket write. Native policy
+// may still hold, refuse, or drop the frame; no uncertain write is replayed.
+func (b *interactiveOwner) deliverNative(ctx context.Context, text string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-b.ctx.Done():
 		return b.ctx.Err()
-	case <-b.appendGate:
+	case <-b.writeGate:
 	}
-	defer func() { b.appendGate <- struct{}{} }()
-	if err = ctx.Err(); err != nil {
+	defer func() { b.writeGate <- struct{}{} }()
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err = b.ctx.Err(); err != nil {
+	if err := b.ctx.Err(); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(b.launch.Directory, "input.jsonl"), os.O_WRONLY|os.O_APPEND|unix.O_NONBLOCK, 0)
+	row, err := readNativeRegistry(b.home, b.parent, b.id)
 	if err != nil {
 		return err
 	}
-	info, e := f.Stat()
-	if e != nil || !info.Mode().IsRegular() {
-		return errors.Join(errors.New("native input is not a regular launch file"), e, f.Close())
+	if row == nil || row.IPCPath == "" {
+		return errors.New("native Qwen inbox is unavailable")
 	}
-	n, e := f.Write(body)
-	if e == nil && n != len(body) {
-		e = io.ErrShortWrite
+	id, err := sessionID("")
+	if err != nil {
+		return err
 	}
-	return errors.Join(e, f.Close())
+	auth, err := json.Marshal(map[string]any{"msgV": 1, "type": "auth", "token": b.token})
+	if err != nil {
+		return err
+	}
+	frame, err := nativeInboxUserLine(id, b.id, text)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.ctx.Err(); err != nil {
+		return err
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	stop := context.AfterFunc(b.ctx, cancel)
+	defer stop()
+	conn, err := (&net.Dialer{}).DialContext(writeCtx, "unix", row.IPCPath)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if deadline, ok := writeCtx.Deadline(); ok {
+		_ = conn.SetWriteDeadline(deadline)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.ctx.Err(); err != nil {
+		return err
+	}
+	wire := string(auth) + "\n" + string(frame)
+	n, err := io.WriteString(conn, wire)
+	if err == nil && n != len(wire) {
+		err = io.ErrShortWrite
+	}
+	return err
+}
+
+func nativeInboxUserLine(id, sessionID, text string) ([]byte, error) {
+	frame, err := json.Marshal(map[string]any{
+		"msgV": 1, "msgId": id, "type": "user", "toSessionId": sessionID,
+		"priority": "next", "message": map[string]string{"role": "user", "content": text},
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Qwen 0.24.3 limits each decoded NDJSON line to 1 MiB in JS UTF-16
+	// units. A byte bound on the final JSON is deliberately conservative for
+	// non-ASCII input and also covers JSON escaping before any socket write.
+	if len(frame) > 1<<20 {
+		return nil, errors.New("encoded native inbox frame exceeds 1 MiB")
+	}
+	return append(frame, '\n'), nil
 }
 
 // Native inherited stdio has the same poller limitation as the lane forwarder.
@@ -608,11 +591,11 @@ func serveInteractiveOwner(ctx context.Context, b *interactiveOwner, input io.Re
 	return err
 }
 
-func interactiveBinding(directory, socket, name string, groups []string) (string, error) {
+func interactiveBinding(socket, name string, groups []string) (string, error) {
 	p, err := inspectNativeProcess(os.Getpid())
 	if err != nil {
 		return "", err
 	}
-	data, err := json.Marshal(interactiveLaunch{Directory: directory, PID: p.pid, Start: p.start, Socket: socket, Name: name, Groups: groups})
+	data, err := json.Marshal(interactiveLaunch{PID: p.pid, Start: p.start, Socket: socket, Name: name, Groups: groups})
 	return string(data), err
 }

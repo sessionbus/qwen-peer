@@ -7,7 +7,7 @@
 > immutable external artifacts, not repository paths.
 
 > Current rewrite checkpoint (2026-09-10): [Qwen package and lane interface](../../qwen/README.md)
-> and its [single generic skill](../../qwen/skills/sessionbus/SKILL.md) supersede
+> and its extension guidance supersede
 > the historical wrapper/skill designs below. The current ACP lane adopts native
 > IDs, uses shared non-consuming run cursors with explicit acknowledgments, and
 > reports written rather than injected for native request/response writes.
@@ -15,10 +15,15 @@
 > in-process switching has an accepted initial-session attribution limitation
 > in both directions; see the package README and the
 > [current acceptance ledger](../designs/qwen-0.5.0/ACCEPTANCE.md). Plain
-> `qwen` startup uses a skill-only extension; managed and integrated
+> `qwen` startup uses an extension without a global MCP server; managed and integrated
 > `qwen-peer` interactive startup supply private native MCP configuration.
 > Historical evidence below is
 > retained as evidence of its cited versions, not the current implementation.
+
+> Local native-inbox source successor (not yet merged or installed): the
+> [package README](../../qwen/README.md) describes its static extension context,
+> explicit controller grant, exec launch and native inbox. The installed
+> acceptance records below refer to their original builds and remain unchanged.
 
 > Mandatory-wake update (2026-09-21): the 0.24.1 ACP lane no longer uses its
 > mid-turn drain as a delivery admission path. Native never calls

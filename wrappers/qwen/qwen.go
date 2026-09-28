@@ -128,7 +128,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	p.endpoint = endpoint
 	p.mu.Unlock()
 	server := laneMCPServer(endpoint.Path, mcpExecutable)
-	visibility, err := newLaneVisibilityFiles(endpoint.Path, key, cwd, os.Environ(), server)
+	visibility, err := newLaneVisibilityFiles(endpoint.Path, key, server)
 	if err != nil {
 		return result, err
 	}
@@ -138,9 +138,9 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	arguments = append(arguments, "--mcp-config", visibility.mcpPath)
 	command := laneCommand("qwen", arguments...)
 	command.Dir, command.Stderr = cwd, os.Stderr
-	command.Env = append(slices.DeleteFunc(os.Environ(), func(s string) bool {
-		return strings.HasPrefix(s, LaneEndpointEnv+"=") || strings.HasPrefix(s, laneSystemDefaultsEnv+"=")
-	}), laneSystemDefaultsEnv+"="+visibility.defaultsPath)
+	command.Env = slices.DeleteFunc(os.Environ(), func(s string) bool {
+		return strings.HasPrefix(s, LaneEndpointEnv+"=")
+	})
 	child, input, output, err := host.StartChild(command, lock, endpoint.PrivateEndpoint)
 	if err != nil {
 		return result, fmt.Errorf("start Qwen ACP: %w", err)

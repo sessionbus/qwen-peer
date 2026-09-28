@@ -24,11 +24,11 @@ final combined v0.5.3 assets.
 See [the Qwen guide](qwen/README.md) for the permanent install/update procedure,
 the private `qwen-peer-mcp` alias, native flags, the managed tool grant, resume,
 identity, and lane lifecycle behavior. The archive contains the Go executable,
-its private alias and Qwen extension with one generic skill. The native Qwen
+its private alias and Qwen extension with static context. The native Qwen
 installation supplies its own Node runtime; this package adds no Node adapter,
 npm dependency, or separate Node installation.
 
-Ordinary Qwen discovers the skill only: the extension has no global MCP manifest.
+Ordinary Qwen loads static extension context only: the extension has no global MCP manifest.
 An interactive `qwen-peer` launch adds a per-launch private MCP configuration;
 a managed lane supplies its own per-session MCP configuration. The managed
 native grant is exactly `--allowed-tools mcp__sessionbus__sessionbus`. The
@@ -98,6 +98,6 @@ describes bus attachment, and `running` describes a managed Run; neither alone
 proves an interactive Qwen model is idle. Follow the actual receipt.
 
 The tool's installed declaration governs `{action, arguments}`. Use `describe`
-for `qwen-peer` Open fields. The generic skill explains collection, acknowledgment
+for `qwen-peer` Open fields. The extension context explains collection, acknowledgment
 and independent lifetime policies. Native client versions may change without a
 wrapper release; test concrete behavior and record exact provenance.

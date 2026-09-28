@@ -6,17 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/sessionbus/peer-common/host"
-	"golang.org/x/sys/unix"
 )
+
+const ControllerTokenEnv = "SESSIONBUS_QWEN_CONTROLLER_TOKEN"
 
 func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 	if environmentValue(environment, host.TokenEnv) != "" {
@@ -57,17 +56,8 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 					return host.ExecPlan{}, err
 				}
 			}
-		case "--input-file", "--inputFile", "--json-file", "--jsonFile", "--json-fd", "--jsonFd":
-			return host.ExecPlan{}, fmt.Errorf("qwen-peer owns %s for native launch observation", key)
 		case "-p", "--prompt", "--input-format", "--inputFormat":
-			return host.ExecPlan{}, fmt.Errorf("%s selects headless input; use a Qwen lane", key)
-		case "--no-chat-recording", "--no-chatRecording":
-			return host.ExecPlan{}, errors.New("qwen-peer requires native chat recording for title confirmation")
-		case "--chat-recording", "--chatRecording":
-			if attached && value != "true" || !attached && i+1 < len(arguments) && arguments[i+1] == "false" {
-				return host.ExecPlan{}, errors.New("qwen-peer requires native chat recording for title confirmation")
-			}
-			native = append(native, arg)
+			return host.ExecPlan{}, fmt.Errorf("%s selects headless input and cannot combine with -n; use a Qwen lane", key)
 		default:
 			native = append(native, arg)
 		}
@@ -79,13 +69,68 @@ func InteractivePlan(arguments, environment []string) (host.ExecPlan, error) {
 	if err := validateManagedQwenArguments(native); err != nil {
 		return host.ExecPlan{}, err
 	}
-	if err := rejectInteractiveBareSessionbusExtension(native, env); err != nil {
+	if err := rejectIntegratedBare(native, environment); err != nil {
 		return host.ExecPlan{}, err
+	}
+	token := environmentValue(environment, ControllerTokenEnv)
+	if !validControllerToken(token) {
+		return host.ExecPlan{}, errors.New("Qwen Sessionbus integration requires a native controller grant in " + ControllerTokenEnv + "; create one with qwen sessions controllers add and supply its token")
+	}
+	if name != "" {
+		for _, argument := range native {
+			key, _, _ := strings.Cut(argument, "=")
+			if argument == "--" || key == "-i" || key == "--prompt-interactive" || key == "-p" || key == "--prompt" {
+				return host.ExecPlan{}, errors.New("-n cannot be combined with a caller startup prompt (-i, -p, or arguments after --)")
+			}
+		}
+		native = insertBeforeNativeBoundary(native, "--prompt-interactive", "/rename -- "+name)
 	}
 	native = appendManagedQwenGrant(native)
 	encoded, _ := json.Marshal(groups)
-	env = append(env, host.GroupsEnv+"="+string(encoded), host.NameEnv+"="+name, host.SocketEnv+"="+first(environmentValue(environment, host.SocketEnv), kit.Socket()), InteractiveEnv+"=launch")
+	env = append(env, host.GroupsEnv+"="+string(encoded), host.NameEnv+"="+name, host.SocketEnv+"="+first(environmentValue(environment, host.SocketEnv), kit.Socket()), InteractiveEnv+"=launch", ControllerTokenEnv+"="+token)
 	return host.ExecPlan{Path: "qwen", Args: native, Env: env}, nil
+}
+
+func validControllerToken(token string) bool {
+	if len(token) != 68 || !strings.HasPrefix(token, "qpc_") {
+		return false
+	}
+	for _, ch := range token[4:] {
+		if ch < '0' || ch > '9' && ch < 'a' || ch > 'f' {
+			return false
+		}
+	}
+	return true
+}
+
+func insertBeforeNativeBoundary(arguments []string, values ...string) []string {
+	position := len(arguments)
+	for index, argument := range arguments {
+		if argument == "--" {
+			position = index
+			break
+		}
+	}
+	result := append([]string(nil), arguments[:position]...)
+	result = append(result, values...)
+	return append(result, arguments[position:]...)
+}
+
+func rejectIntegratedBare(arguments, environment []string) error {
+	if qwenBareEnvEnabled(environmentValue(environment, "QWEN_CODE_SIMPLE")) {
+		return errors.New("integrated Qwen cannot run with QWEN_CODE_SIMPLE bare mode: the native peer inbox is unavailable")
+	}
+	beforeBoundary := true
+	for _, argument := range arguments {
+		if argument == "--" {
+			beforeBoundary = false
+			continue
+		}
+		if argument == "--bare" || beforeBoundary && argument == "--bare=true" {
+			return errors.New("integrated Qwen cannot run with --bare: the native peer inbox is unavailable")
+		}
+	}
+	return nil
 }
 
 func cleanInteractiveEnvironment(environment []string) []string {
@@ -95,12 +140,14 @@ func cleanInteractiveEnvironment(environment []string) []string {
 	})
 }
 
-// The launcher remains the direct native child's owner. The native MCP helper
-// owns its own bus connection; neither a provisional native ID nor a second
-// interactive endpoint is created here.
+// The native MCP helper owns the Sessionbus connection. The launcher becomes
+// native Qwen, so it neither owns native descendants nor removes files they use.
 func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	if environmentValue(plan.Env, InteractiveEnv) == "launch" {
-		if err := rejectInteractiveBareSessionbusExtension(plan.Args, plan.Env); err != nil {
+		if !validControllerToken(environmentValue(plan.Env, ControllerTokenEnv)) {
+			return errors.New("Qwen Sessionbus controller grant is missing or invalid")
+		}
+		if err := rejectIntegratedBare(plan.Args, plan.Env); err != nil {
 			return err
 		}
 	}
@@ -109,48 +156,16 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		return err
 	}
 	args := slices.Clone(plan.Args)
-	defaultsPath := ""
 	if environmentValue(plan.Env, InteractiveEnv) == "launch" {
 		alias, e := InstalledMCPExecutable()
 		if e != nil {
-			return e
-		}
-		directory, e := os.MkdirTemp("", "sessionbus-qwen-launch-")
-		if e != nil {
-			return e
-		}
-		absolute, e := filepath.Abs(directory)
-		if e != nil {
-			_ = os.RemoveAll(directory)
-			return e
-		}
-		directory = absolute
-		defer os.RemoveAll(directory)
-		cwd, e := os.Getwd()
-		if e != nil {
-			return e
-		}
-		defaultsPath, e = newInteractiveSystemDefaultsFile(directory, cwd, plan.Env)
-		if e != nil {
-			return e
-		}
-		for _, name := range []string{"input.jsonl"} {
-			f, e := os.OpenFile(filepath.Join(directory, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-			if e != nil {
-				return e
-			}
-			if e = f.Close(); e != nil {
-				return e
-			}
-		}
-		if e = unix.Mkfifo(filepath.Join(directory, "events.fifo"), 0600); e != nil {
 			return e
 		}
 		groups := []string{}
 		if e = json.Unmarshal([]byte(environmentValue(plan.Env, host.GroupsEnv)), &groups); e != nil {
 			return e
 		}
-		binding, e := interactiveBinding(directory, environmentValue(plan.Env, host.SocketEnv), environmentValue(plan.Env, host.NameEnv), groups)
+		binding, e := interactiveBinding(environmentValue(plan.Env, host.SocketEnv), environmentValue(plan.Env, host.NameEnv), groups)
 		if e != nil {
 			return e
 		}
@@ -162,31 +177,13 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		if e != nil {
 			return e
 		}
-		args = append([]string{"--chat-recording=true", "--input-file", filepath.Join(directory, "input.jsonl"), "--json-file", filepath.Join(directory, "events.fifo")}, args...)
 	}
-	child := exec.Command(path, args...)
-	child.Env = cleanInteractiveEnvironment(plan.Env)
-	if defaultsPath != "" {
-		child.Env = append(slices.DeleteFunc(child.Env, func(entry string) bool {
-			return strings.HasPrefix(entry, laneSystemDefaultsEnv+"=")
-		}), laneSystemDefaultsEnv+"="+defaultsPath)
-	}
-	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if err = child.Start(); err != nil {
-		return err
+	env := cleanInteractiveEnvironment(plan.Env)
+	if token := environmentValue(plan.Env, ControllerTokenEnv); token != "" {
+		env = append(env, ControllerTokenEnv+"="+token)
 	}
-	done := make(chan error, 1)
-	go func() { done <- child.Wait() }()
-	select {
-	case err = <-done:
-		return err
-	case <-ctx.Done():
-		if e := child.Process.Signal(syscall.SIGTERM); e != nil && !errors.Is(e, os.ErrProcessDone) {
-			return errors.Join(e, <-done)
-		}
-		return <-done
-	}
+	return syscall.Exec(path, append([]string{path}, args...), env)
 }

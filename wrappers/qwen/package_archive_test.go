@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -100,10 +101,29 @@ esac
 	for _, mode := range []string{"eof", "term-open-input", "term-undrained-output"} {
 		t.Run(mode, func(t *testing.T) { exercisePackagedPrivateEntry(t, alias, stage, mode) })
 	}
-	for _, mode := range []string{"eof", "eof-late-native-writer", "term-open-input", "term-undrained-output", "pending-action-eof"} {
-		t.Run("interactive-"+mode, func(t *testing.T) { exercisePackagedInteractiveEntry(t, alias, mode) })
-	}
-	t.Run("interactive-public-argv-exit-cleanup", func(t *testing.T) { exercisePackagedInteractiveLaunch(t, public) })
+	t.Run("interactive-exec-native", func(t *testing.T) { exercisePackagedInteractiveExec(t, public) })
+}
+
+func exercisePackagedInteractiveExec(t *testing.T, public string) {
+	t.Helper()
+	bin := t.TempDir()
+	capture := filepath.Join(bin, "native-argv")
+	native := filepath.Join(bin, "qwen")
+	must(t, os.WriteFile(native, []byte("#!/bin/sh\nprintf '%s\\n' \"$$\" \"$SESSIONBUS_QWEN_CONTROLLER_TOKEN\" \"$QWEN_CODE_SESSION_ID\" \"$QWEN_CODE_SYSTEM_DEFAULTS_PATH\" \"$@\" > \"$QWEN_CAPTURE\"\nexit 37\n"), 0700))
+	command := exec.Command(public, "-n", "chosen", "--no-chat-recording")
+	command.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), ControllerTokenEnv+"="+fixtureControllerToken, "QWEN_CAPTURE="+capture, nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"=", "SESSIONBUS_OLD=stale")
+	must(t, command.Start())
+	err := command.Wait()
+	result, ok := err.(*exec.ExitError)
+	check(t, ok && result.ExitCode() == 37, "native exit not propagated: %v", err)
+	data, err := os.ReadFile(capture)
+	must(t, err)
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	pid, err := strconv.Atoi(lines[0])
+	must(t, err)
+	check(t, pid == command.Process.Pid, "wrapper did not exec native: %d != %d", pid, command.Process.Pid)
+	check(t, lines[1] == fixtureControllerToken && lines[2] == "" && lines[3] == "", "credential or native environment projection changed")
+	check(t, strings.Contains(strings.Join(lines[4:], "|"), "/rename -- chosen") && strings.Contains(strings.Join(lines[4:], "|"), "--no-chat-recording"), "native argv lost name or recording choice: %q", lines[4:])
 }
 
 func assertGenericSkillPayload(t *testing.T, plugin, root string) {
@@ -111,15 +131,10 @@ func assertGenericSkillPayload(t *testing.T, plugin, root string) {
 	if _, err := os.Stat(filepath.Join(plugin, "mcp.json")); !os.IsNotExist(err) {
 		t.Fatalf("ordinary extension retains MCP activation: %v", err)
 	}
-	skills, err := os.ReadDir(filepath.Join(plugin, "skills"))
-	must(t, err)
-	if len(skills) != 1 || skills[0].Name() != "sessionbus" || !skills[0].IsDir() {
-		t.Fatalf("expected only generic skill at %s, got %v", plugin, skills)
+	if _, err := os.Stat(filepath.Join(plugin, "skills")); !os.IsNotExist(err) {
+		t.Fatalf("obsolete invokable skill remains: %v", err)
 	}
-	files, err := os.ReadDir(filepath.Join(plugin, "skills/sessionbus"))
-	must(t, err)
-	check(t, len(files) == 1 && files[0].Name() == "SKILL.md", "unexpected generic skill files: %v", files)
-	for _, name := range []string{"skills/sessionbus/SKILL.md", "plugin.json", "README.md"} {
+	for _, name := range []string{"SESSIONBUS.md", "qwen-extension.json", "README.md"} {
 		got, err := os.ReadFile(filepath.Join(plugin, name))
 		must(t, err)
 		want, err := os.ReadFile(filepath.Join(root, "qwen", name))
