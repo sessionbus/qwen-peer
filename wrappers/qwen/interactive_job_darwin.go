@@ -2,6 +2,7 @@
 package qwen
 
 import (
+	"errors"
 	"fmt"
 	"syscall"
 
@@ -26,6 +27,13 @@ func nativeProcessTable() ([]nativeProcessEntry, error) {
 	return table, nil
 }
 
+// nativeProcessGone reports an error that means the process has exited. The
+// kern.proc.pid sysctl returns no row for a missing PID, which x/sys reports
+// as EIO.
+func nativeProcessGone(err error) bool {
+	return errors.Is(err, errNativeProcessNotLive) || errors.Is(err, unix.EIO) || errors.Is(err, syscall.ESRCH)
+}
+
 // nativeProcessStarted is the start instant, in microseconds since the epoch.
 func nativeProcessStarted(start string) uint64 {
 	var seconds, micros uint64
@@ -39,7 +47,7 @@ func nativeProcessStarted(start string) uint64 {
 // macOS has no pidfd; PIDs are allocated sequentially, so a reuse within this
 // window needs a full PID wrap.
 func signalNativeProcess(p nativeProcessIdentity, sig syscall.Signal) {
-	if current, err := inspectNativeProcess(p.pid); err == nil && current.start == p.start {
+	if current, err := inspectNativeMember(p.pid); err == nil && current.start == p.start {
 		_ = unix.Kill(p.pid, sig)
 	}
 }

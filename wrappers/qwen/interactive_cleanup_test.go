@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -253,19 +254,24 @@ func TestRunInteractiveCancelledBeforeNativeStart(t *testing.T) {
 }
 
 // startSignalFixtureChain runs installed Qwen's native topology (bootstrap,
-// supervisor, TUI) through RunInteractive in this process, which does not
-// adopt orphans: the path macOS always takes. It returns once the TUI runs.
-func startSignalFixtureChain(t *testing.T, ctx context.Context) (records string, result chan error, chain []nativeProcessIdentity) {
+// supervisor, TUI) as an integrated launch through RunInteractive in this
+// process. The process adopts no orphans unless the test made it adopt them.
+// It returns once the TUI runs, with the TUI's launch directory.
+func startSignalFixtureChain(t *testing.T, ctx context.Context) (records string, result chan error, chain []nativeProcessIdentity, directory string) {
 	t.Helper()
-	bin, records := t.TempDir(), t.TempDir()
-	stub := filepath.Join(bin, "qwen")
-	must(t, os.WriteFile(stub, []byte("#!/bin/sh\nexec \"$QWEN_SIGNAL_FIXTURE_EXECUTABLE\" -test.run '^TestInteractiveSignalNativeFixture$' -- \"$@\"\n"), 0700))
+	bin, records, tmp := t.TempDir(), t.TempDir(), t.TempDir()
+	must(t, os.WriteFile(filepath.Join(bin, "qwen"), []byte("#!/bin/sh\nexec \"$QWEN_SIGNAL_FIXTURE_EXECUTABLE\" -test.run '^TestInteractiveSignalNativeFixture$' -- \"$@\"\n"), 0700))
 	executable, e := os.Executable()
 	must(t, e)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMPDIR", tmp)
 	env := append(os.Environ(), "QWEN_SIGNAL_FIXTURE_EXECUTABLE="+executable, "QWEN_SIGNAL_FIXTURE_RECORDS="+records, "QWEN_SIGNAL_FIXTURE_MODE=exit",
-		"QWEN_SIGNAL_FIXTURE_ROLE=bootstrap", "QWEN_SIGNAL_FIXTURE_HOLD=1")
+		"QWEN_SIGNAL_FIXTURE_ROLE=bootstrap", "QWEN_SIGNAL_FIXTURE_HOLD=1", laneSystemDefaultsEnv+"="+filepath.Join(bin, "absent.json"))
+	plan, e := InteractivePlan([]string{"-n", "chosen"}, env)
+	must(t, e)
+	check(t, IntegratedLaunch(plan), "plan is not an integrated launch: %v", plan.Env)
 	result = make(chan error, 1)
-	go func() { result <- RunInteractive(ctx, host.ExecPlan{Path: stub, Env: env}) }()
+	go func() { result <- RunInteractive(ctx, plan) }()
 	t.Cleanup(func() {
 		_ = os.WriteFile(filepath.Join(records, "release"), nil, 0600)
 		for _, p := range chain {
@@ -283,7 +289,8 @@ func startSignalFixtureChain(t *testing.T, ctx context.Context) (records string,
 	supervisor := mustInspect(t, tui.parent)
 	bootstrap := mustInspect(t, supervisor.parent)
 	check(t, bootstrap.parent == os.Getpid(), "bootstrap %+v is not this process's child", bootstrap)
-	return records, result, []nativeProcessIdentity{bootstrap, supervisor, tui}
+	check(t, strings.HasPrefix(launch.Directory, tmp+string(filepath.Separator)+launchDirectoryPrefix), "launch directory %q", launch.Directory)
+	return records, result, []nativeProcessIdentity{bootstrap, supervisor, tui}, launch.Directory
 }
 
 // Without adoption, the job is listed before the direct child is signalled
@@ -293,7 +300,7 @@ func TestRunInteractiveEndsNativeChainWithoutAdoption(t *testing.T) {
 	check(t, !nativeOrphansAdopted.Load(), "test process adopts orphans")
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	records, result, chain := startSignalFixtureChain(t, ctx)
+	records, result, chain, directory := startSignalFixtureChain(t, ctx)
 	cancel(launchSignal{syscall.SIGHUP})
 	var err error
 	select {
@@ -310,6 +317,8 @@ func TestRunInteractiveEndsNativeChainWithoutAdoption(t *testing.T) {
 		current, e := inspectNativeProcess(p.pid)
 		check(t, e != nil || current.start != p.start, "chain process %d outlived RunInteractive", p.pid)
 	}
+	_, e = os.Stat(directory)
+	check(t, errors.Is(e, os.ErrNotExist), "launch directory kept after the job ended: %v", e)
 }
 
 // The job is the launcher's live descendants in its own process group, less
@@ -341,7 +350,8 @@ func TestNativeJobScope(t *testing.T) {
 	directIdentity := mustInspect(t, direct.Process.Pid)
 	orphan := mustInspect(t, pids["orphan"])
 	check(t, orphan.parent != direct.Process.Pid, "orphan %d is still in the launcher's tree", pids["orphan"])
-	owned, _ := nativeJob(directIdentity)
+	owned, _, err := nativeJob(directIdentity)
+	must(t, err)
 	listed := map[int]bool{}
 	for _, p := range owned {
 		listed[p.pid] = true
@@ -429,18 +439,245 @@ func TestSignalNativeJobNeverSignalsAnotherProcess(t *testing.T) {
 	}
 }
 
-// The job wait is bounded and reports what is still running.
-func TestWaitNativeJobIsBounded(t *testing.T) {
+// The drain is bounded and reports what is still running; an exited member
+// is confirmed gone and the job is then proven ended.
+func TestNativeJobSettleIsBounded(t *testing.T) {
 	child := exec.Command("sleep", "30")
 	must(t, child.Start())
 	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
 	live := mustInspect(t, child.Process.Pid)
+	job := &nativeJobWatch{members: []nativeProcessIdentity{live}}
 	started := time.Now()
-	survivors := waitNativeJob([]nativeProcessIdentity{live}, 150*time.Millisecond)
-	check(t, len(survivors) == 1 && survivors[0] == live && time.Since(started) >= 150*time.Millisecond, "survivors %v after %s", survivors, time.Since(started))
+	job.settle(started.Add(150 * time.Millisecond))
+	check(t, !job.ended && len(job.members) == 1 && job.members[0].pid == live.pid && time.Since(started) >= 150*time.Millisecond, "watch %+v after %s", job, time.Since(started))
+	check(t, job.kept() == fmt.Sprintf("native processes still running after 10s: pid %d", live.pid), "report %q", job.kept())
 	must(t, child.Process.Kill())
 	_ = child.Wait()
-	check(t, len(waitNativeJob([]nativeProcessIdentity{live}, time.Minute)) == 0, "an exited process was reported as a survivor")
+	job.settle(time.Now().Add(time.Minute))
+	check(t, job.ended && len(job.members) == 0, "an exited member kept the job: %+v", job)
+}
+
+// replaceNativeProcesses serves the given tables, each with this process's
+// own row, one per listing, and then the last one again.
+func replaceNativeProcesses(t *testing.T, tables ...[]nativeProcessEntry) *int {
+	t.Helper()
+	listings := new(int)
+	previous := listNativeProcesses
+	t.Cleanup(func() { listNativeProcesses = previous })
+	self := nativeProcessEntry{nativeProcessIdentity: nativeProcessIdentity{pid: os.Getpid(), parent: os.Getppid(), start: "self"}, group: syscall.Getpgrp(), started: 100, live: true}
+	listNativeProcesses = func() ([]nativeProcessEntry, error) {
+		*listings++
+		return append([]nativeProcessEntry{self}, tables[min(*listings, len(tables))-1]...), nil
+	}
+	return listings
+}
+
+// nativeJobMember is a live process in this process's group, parented here.
+func nativeJobMember(pid int) nativeProcessEntry {
+	return nativeProcessEntry{nativeProcessIdentity: nativeProcessIdentity{pid: pid, parent: os.Getpid(), start: fmt.Sprint(pid)}, group: syscall.Getpgrp(), started: 200, live: true}
+}
+
+// An empty member list proves nothing on its own (root reviewer B1): the job
+// is proven ended only by two consecutive complete listings that find no
+// member, and a member found by either is kept.
+func TestNativeJobProofNeedsTwoCompleteEmptyListings(t *testing.T) {
+	late := nativeJobMember(1 << 29)
+	listings := replaceNativeProcesses(t, nil, []nativeProcessEntry{late})
+	job := &nativeJobWatch{}
+	check(t, !job.prove() && len(job.members) == 1 && job.members[0] == late.nativeProcessIdentity && *listings == 2, "proof %+v after %d listings, want the member found by the second listing", job, *listings)
+	listings = replaceNativeProcesses(t, nil, nil)
+	job = &nativeJobWatch{}
+	check(t, job.prove() && job.ended && *listings == 2, "no proof from two empty listings: %+v after %d", job, *listings)
+}
+
+// Members that start during the drain are found by re-listing and kept to the
+// bound, where they are reported.
+func TestNativeJobSettleFindsMembersStartedDuringTheDrain(t *testing.T) {
+	late := nativeJobMember(1 << 29)
+	replaceNativeProcesses(t, []nativeProcessEntry{late})
+	job := &nativeJobWatch{}
+	started := time.Now()
+	job.settle(started.Add(300 * time.Millisecond))
+	check(t, !job.ended && len(job.members) == 1 && job.members[0].pid == late.pid && time.Since(started) >= 300*time.Millisecond, "watch %+v after %s, want the late member at the bound", job, time.Since(started))
+}
+
+// A member stays owned until it is confirmed gone: a listing that misses it,
+// for example after a reparenting or with its row unreadable, never ends it.
+func TestNativeJobWatchRetainsMembersAListingMisses(t *testing.T) {
+	child := exec.Command("sleep", "30")
+	must(t, child.Start())
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	live := mustInspect(t, child.Process.Pid)
+	replaceNativeProcesses(t, nil)
+	job := &nativeJobWatch{members: []nativeProcessIdentity{live}}
+	job.settle(time.Now().Add(1200 * time.Millisecond))
+	check(t, !job.ended && len(job.members) == 1 && job.members[0].pid == live.pid, "a live member missing from the listings was dropped: %+v", job)
+}
+
+// While known members still run, the drain re-lists at least every second, so
+// a member started meanwhile is known, and reported, at the bound.
+func TestNativeJobSettleRelistsWhileMembersRun(t *testing.T) {
+	child := exec.Command("sleep", "30")
+	must(t, child.Start())
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	live, late := mustInspect(t, child.Process.Pid), nativeJobMember(1<<29)
+	listings := replaceNativeProcesses(t, nil)
+	previous, started := listNativeProcesses, time.Now()
+	listNativeProcesses = func() ([]nativeProcessEntry, error) {
+		rows, err := previous()
+		if time.Since(started) > 200*time.Millisecond {
+			rows = append(rows, late)
+		}
+		return rows, err
+	}
+	inspect := inspectNativeMember
+	t.Cleanup(func() { inspectNativeMember = inspect })
+	inspectNativeMember = func(pid int) (nativeProcessIdentity, error) {
+		if pid == late.pid {
+			return late.nativeProcessIdentity, nil
+		}
+		return inspect(pid)
+	}
+	job := &nativeJobWatch{members: []nativeProcessIdentity{live}, listed: started}
+	job.settle(started.Add(1500 * time.Millisecond))
+	check(t, !job.ended && len(job.members) == 2 && job.members[1].pid == late.pid && *listings >= 1, "watch %+v after %d listings, want the member started during the drain", job, *listings)
+	check(t, job.kept() == fmt.Sprintf("native processes still running after 10s: pid %d, pid %d", live.pid, late.pid), "report %q", job.kept())
+}
+
+// failNativeProcesses makes listings fail until *failing is false.
+func failNativeProcesses(t *testing.T) *atomic.Bool {
+	t.Helper()
+	replaceNativeProcesses(t, nil)
+	serve, failing := listNativeProcesses, new(atomic.Bool)
+	failing.Store(true)
+	listNativeProcesses = func() ([]nativeProcessEntry, error) {
+		if failing.Load() {
+			return nil, errors.New("injected listing failure")
+		}
+		return serve()
+	}
+	return failing
+}
+
+// An incomplete listing is never an empty-job certificate (root reviewer B3):
+// a failed table, a table without the launcher, and a same-group process whose
+// ancestry the table does not show all block the proof. The bounded drain
+// keeps what it cannot prove; the unbounded wait keeps waiting until a complete
+// listing, and then ends.
+func TestNativeJobIncompleteListingsProveNothing(t *testing.T) {
+	failing := failNativeProcesses(t)
+	job := &nativeJobWatch{}
+	started := time.Now()
+	job.settle(started.Add(200 * time.Millisecond))
+	check(t, !job.ended && len(job.members) == 0 && time.Since(started) >= 200*time.Millisecond, "bounded drain with failed listings: %+v", job)
+	check(t, job.kept() == "native job not proven ended after 10s: native process table incomplete: injected listing failure", "report %q", job.kept())
+	job, returned := &nativeJobWatch{}, make(chan struct{})
+	go func() { defer close(returned); job.await(context.Background()) }()
+	select {
+	case <-returned:
+		t.Fatal("the unbounded wait ended on a failed listing")
+	case <-time.After(500 * time.Millisecond):
+	}
+	failing.Store(false)
+	select {
+	case <-returned:
+		check(t, job.ended, "the unbounded wait ended without proof: %+v", job)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the unbounded wait did not end after a complete listing")
+	}
+
+	previous := listNativeProcesses
+	t.Cleanup(func() { listNativeProcesses = previous })
+	listNativeProcesses = func() ([]nativeProcessEntry, error) { return []nativeProcessEntry{nativeJobMember(1 << 29)}, nil }
+	_, _, err := nativeJob(nativeProcessIdentity{})
+	check(t, err != nil, "a listing without the launcher was accepted")
+	orphan := nativeJobMember(1 << 29)
+	orphan.parent = 1<<29 + 1
+	replaceNativeProcesses(t, []nativeProcessEntry{orphan})
+	owned, _, err := nativeJob(nativeProcessIdentity{})
+	check(t, len(owned) == 0 && err != nil, "a same-group process with an unread parent was accepted: %v (%v)", owned, err)
+	orphan.started = 50
+	replaceNativeProcesses(t, []nativeProcessEntry{orphan})
+	_, _, err = nativeJob(nativeProcessIdentity{})
+	check(t, err == nil, "a process that started before the launcher blocked the listing: %v", err)
+}
+
+// Each read of a known member ends in one of three outcomes (root reviewer
+// B3). Only a vanished PID, a zombie or a replaced identity is gone; EACCES
+// and other failures are unknown, which keeps the member and never signals
+// it.
+func TestObserveNativeMemberOutcomes(t *testing.T) {
+	child := exec.Command("sleep", "30")
+	must(t, child.Start())
+	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
+	live := mustInspect(t, child.Process.Pid)
+	check(t, observeNativeMember(live) == nativeLive, "a running process is not live")
+	check(t, observeNativeMember(nativeProcessIdentity{pid: live.pid, start: live.start + "0"}) == nativeGone, "a replaced identity is not gone")
+	must(t, child.Process.Kill())
+	for deadline := time.Now().Add(5 * time.Second); observeNativeMember(live) != nativeGone; time.Sleep(5 * time.Millisecond) {
+		check(t, time.Now().Before(deadline), "a zombie is not gone")
+	}
+	_ = child.Wait()
+	_, e := inspectNativeProcess(live.pid)
+	check(t, observeNativeMember(live) == nativeGone && nativeProcessGone(e), "a vanished PID is not gone: %v", e)
+
+	previous := inspectNativeMember
+	t.Cleanup(func() { inspectNativeMember = previous })
+	for fault, want := range map[error]nativeObservation{syscall.EACCES: nativeUnknown, syscall.EPERM: nativeUnknown, errors.New("malformed"): nativeUnknown, syscall.ESRCH: nativeGone, os.ErrNotExist: nativeGone, errNativeProcessNotLive: nativeGone} {
+		inspectNativeMember = func(int) (nativeProcessIdentity, error) { return nativeProcessIdentity{}, fault }
+		check(t, observeNativeMember(live) == want, "%v: outcome %v, want %v", fault, observeNativeMember(live), want)
+	}
+	inspectNativeMember = func(int) (nativeProcessIdentity, error) { return nativeProcessIdentity{}, syscall.EACCES }
+	job := &nativeJobWatch{members: []nativeProcessIdentity{live}}
+	job.check()
+	check(t, len(job.members) == 1 && job.unknown[live] && job.kept() == fmt.Sprintf("native processes still running after 10s: pid %d (state unknown)", live.pid), "unknown member %+v, report %q", job, job.kept())
+}
+
+// End to end: while the process table cannot be read, RunInteractive keeps
+// its launch directory after a normal native exit and keeps waiting. A HUP
+// then bounds it: the directory stays, reported once, and native's status
+// is returned.
+func TestRunInteractiveKeepsDirectoryWhileListingsFail(t *testing.T) {
+	bin, tmp := t.TempDir(), t.TempDir()
+	must(t, os.WriteFile(filepath.Join(bin, "qwen"), []byte("#!/bin/sh\nexit 0\n"), 0700))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMPDIR", tmp)
+	plan, err := InteractivePlan([]string{"-n", "chosen"}, []string{laneSystemDefaultsEnv + "=" + filepath.Join(bin, "absent.json")})
+	must(t, err)
+	failNativeProcesses(t)
+	report, err := os.Create(filepath.Join(bin, "stderr"))
+	must(t, err)
+	stderr := os.Stderr
+	os.Stderr = report
+	t.Cleanup(func() { os.Stderr = stderr })
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	result := make(chan error, 1)
+	go func() { result <- RunInteractive(ctx, plan) }()
+	select {
+	case err = <-result:
+		t.Fatalf("RunInteractive returned %v while no listing could be read", err)
+	case <-time.After(time.Second):
+	}
+	entries, e := os.ReadDir(tmp)
+	must(t, e)
+	check(t, len(entries) == 1, "launch directory not kept while listings fail: %v", entries)
+	started := time.Now()
+	cancel(launchSignal{syscall.SIGHUP})
+	select {
+	case err = <-result:
+	case <-time.After(30 * time.Second):
+		t.Fatal("RunInteractive did not return at the bound")
+	}
+	os.Stderr = stderr
+	check(t, err == nil && time.Since(started) >= nativeJobWait, "RunInteractive = %v after %s, want native's status 0 at the bound", err, time.Since(started))
+	entries, e = os.ReadDir(tmp)
+	must(t, e)
+	check(t, len(entries) == 1, "launch directory not kept at the bound: %v", entries)
+	data, e := os.ReadFile(report.Name())
+	must(t, e)
+	want := fmt.Sprintf("qwen-peer: left private launch directory %s: native job not proven ended after 10s: native process table incomplete: injected listing failure\n", filepath.Join(tmp, entries[0].Name()))
+	check(t, string(data) == want, "stderr %q, want %q", data, want)
 }
 
 // Without a child subreaper (macOS), orphans reparented to PID 1 are awaited,

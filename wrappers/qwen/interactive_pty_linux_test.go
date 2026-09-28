@@ -36,3 +36,14 @@ func rawTestPTY(t *testing.T, terminal *os.File) {
 	settings.Lflag &^= unix.ISIG | unix.ICANON | unix.ECHO
 	must(t, unix.IoctlSetTermios(int(terminal.Fd()), unix.TCSETS, settings))
 }
+
+// adoptTestOrphans makes this test process a child subreaper until cleanup.
+// A process the launcher leaves behind is then reparented here, inside this
+// session, so its process group is not orphaned: the kernel neither hangs up
+// nor continues it, and its exit status can be collected with Wait4.
+func adoptTestOrphans(t *testing.T) bool {
+	t.Helper()
+	must(t, unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0))
+	t.Cleanup(func() { _ = unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 0, 0, 0, 0) })
+	return true
+}

@@ -2,7 +2,9 @@
 package qwen
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"strconv"
@@ -23,33 +25,67 @@ func nativeProcessTable() ([]nativeProcessEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	table := []nativeProcessEntry{}
+	pids := []int{}
 	for _, entry := range entries {
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue
+		if pid, err := strconv.Atoi(entry.Name()); err == nil {
+			pids = append(pids, pid)
 		}
-		stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-		end := strings.LastIndexByte(string(stat), ')')
-		if err != nil || end < 0 {
-			continue
-		}
-		fields := strings.Fields(string(stat[end+1:]))
-		if len(fields) <= 19 {
-			continue
-		}
-		parent, perr := strconv.Atoi(fields[1])
-		group, gerr := strconv.Atoi(fields[2])
-		started, serr := strconv.ParseUint(fields[19], 10, 64)
-		if perr != nil || gerr != nil || serr != nil {
-			continue
-		}
-		table = append(table, nativeProcessEntry{
-			nativeProcessIdentity: nativeProcessIdentity{pid: pid, parent: parent, start: strings.TrimSpace(string(boot)) + ":" + fields[19]},
-			group:                 group, started: started, live: fields[0] != "Z" && fields[0] != "X",
-		})
 	}
-	return table, nil
+	return collectNativeProcessTable(pids, strings.TrimSpace(string(boot)), func(pid int) ([]byte, error) {
+		return os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	})
+}
+
+// collectNativeProcessTable reads each PID's stat row. A process that exits
+// while it is read is skipped. Any other row it cannot read or parse makes the
+// table incomplete: the rows it did read are returned with that error.
+func collectNativeProcessTable(pids []int, boot string, read func(int) ([]byte, error)) ([]nativeProcessEntry, error) {
+	table, incomplete := []nativeProcessEntry{}, error(nil)
+	for _, pid := range pids {
+		stat, err := read(pid)
+		if nativeProcessGone(err) {
+			continue
+		}
+		row := nativeProcessEntry{}
+		if err == nil {
+			row, err = parseNativeProcessStat(pid, boot, stat)
+		}
+		if err != nil {
+			if incomplete == nil {
+				incomplete = err
+			}
+			continue
+		}
+		table = append(table, row)
+	}
+	return table, incomplete
+}
+
+// parseNativeProcessStat reads one /proc/<pid>/stat row.
+func parseNativeProcessStat(pid int, boot string, stat []byte) (nativeProcessEntry, error) {
+	end := strings.LastIndexByte(string(stat), ')')
+	if end < 0 {
+		return nativeProcessEntry{}, fmt.Errorf("malformed /proc/%d/stat", pid)
+	}
+	fields := strings.Fields(string(stat[end+1:]))
+	if len(fields) <= 19 {
+		return nativeProcessEntry{}, fmt.Errorf("malformed /proc/%d/stat", pid)
+	}
+	parent, perr := strconv.Atoi(fields[1])
+	group, gerr := strconv.Atoi(fields[2])
+	started, serr := strconv.ParseUint(fields[19], 10, 64)
+	if perr != nil || gerr != nil || serr != nil {
+		return nativeProcessEntry{}, fmt.Errorf("malformed /proc/%d/stat", pid)
+	}
+	return nativeProcessEntry{
+		nativeProcessIdentity: nativeProcessIdentity{pid: pid, parent: parent, start: boot + ":" + fields[19]},
+		group:                 group, started: started, live: fields[0] != "Z" && fields[0] != "X",
+	}, nil
+}
+
+// nativeProcessGone reports an error that means the process has exited.
+func nativeProcessGone(err error) bool {
+	return errors.Is(err, errNativeProcessNotLive) || errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH)
 }
 
 // nativeProcessStarted is the start instant, in clock ticks after boot.
@@ -66,7 +102,7 @@ func signalNativeProcess(p nativeProcessIdentity, sig syscall.Signal) {
 		return
 	}
 	defer unix.Close(fd)
-	if current, err := inspectNativeProcess(p.pid); err == nil && current.start == p.start {
+	if current, err := inspectNativeMember(p.pid); err == nil && current.start == p.start {
 		_ = unix.PidfdSendSignal(fd, sig, nil, 0)
 	}
 }
@@ -114,10 +150,9 @@ func reapNativeOrphans() {
 	if direct < 0 {
 		return
 	}
-	table, err := nativeProcessTable()
-	if err != nil {
-		return
-	}
+	// Rows the table could read are enough: only this process's exited
+	// children are reaped.
+	table, _ := nativeProcessTable()
 	self := os.Getpid()
 	for _, p := range table {
 		if p.parent == self && !p.live && int64(p.pid) != direct {

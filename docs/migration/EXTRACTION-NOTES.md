@@ -132,23 +132,32 @@ with `--bare` or `--bare=true` before `--`, an exact `--bare` argv element
 after `--`, or truthy inherited `QWEN_CODE_SIMPLE`. After `--`, a single
 element merely containing `--bare` remains accepted; `--bare=x` and
 `--bare=TRUE` pass through unchanged. They also fail closed on unmergeable
-host defaults. These are new
-installed compatibility restrictions. On that installed build, SIGHUP can
-leave the private interactive launch directory, and SIGTERM, forwarded only
-to the direct child, kills Qwen's `cli-entry.js` bootstrap while the TUI two
-levels below keeps running. The later lifecycle source change, not yet
-installed, ends the launcher's native job on SIGHUP or SIGTERM: every
-identity-checked descendant in the launcher's process group, the TUI
-included, receives the signal before the direct child, and the directory is
-removed only after all have exited, within 10 s; a member still running then
-keeps the directory and is named on stderr. With the installed bootstrap the
-launcher exits 1. SIGINT is never forwarded: if a cooked-mode or programmatic
-SIGINT kills the bootstrap while the TUI keeps running, the launcher keeps
-the directory until the rest of its native job has exited, with no time
-bound. An inherited ignored SIGHUP stays ignored for the launcher
-only, because Node resets it. A panic, SIGKILL or a Go stack-dump signal
-such as SIGQUIT can still leave the directory, and descendants outside the
-process group, such as detached shell tools, keep a dangling defaults path.
+host defaults. These are new installed compatibility restrictions. On that
+installed build, SIGHUP can leave the private interactive launch directory,
+and SIGTERM, forwarded only to the direct child, kills Qwen's `cli-entry.js`
+bootstrap while the TUI two levels below keeps running. The later lifecycle
+source change, not yet installed, ends an integrated launch's native job on
+SIGHUP or SIGTERM: every identity-checked descendant in the launcher's process
+group, the TUI included, receives the signal before the direct child. The
+directory is removed only once the job is proven ended: every process seen in
+it is confirmed gone and two consecutive complete listings find no other,
+including any process a member starts while exiting. A process whose state
+cannot be read, or an incomplete listing, proves nothing, and such a process
+is never signalled. One 10 s bound, counted from the signal, covers the whole
+termination, the direct child included; whatever is not proven ended then,
+even a stopped bootstrap, keeps the directory and is named on stderr, nothing
+is killed or continued, and nothing removes that directory later. With the
+installed bootstrap the launcher exits 1, the existing mapping of the
+bootstrap's signal death, which says nothing about the TUI's own exit. SIGINT
+is never forwarded: if a cooked-mode or programmatic SIGINT kills the
+bootstrap while the TUI keeps running, the still-running launcher keeps the
+directory until it has proven the rest of its native job ended, with no time
+bound. On macOS, which has no subreaper, orphans are only awaited through a
+start-time heuristic with material limits. An inherited ignored SIGHUP stays
+ignored for the launcher only, because Node resets it. A panic, SIGKILL or a
+Go stack-dump signal such as SIGQUIT can still leave the directory, and
+descendants outside the process group, such as detached shell tools, keep a
+dangling defaults path, as does a nested Qwen such a tool starts.
 
 On that installed build, managed idle QWK924R (cell `c153b1e0`, independent
 review `edc29e93`) and managed active QWQ924R (`a890ca68`, review `c2d90c03`)

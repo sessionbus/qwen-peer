@@ -110,46 +110,67 @@
 > bootstrap level handles or forwards SIGHUP or SIGTERM. A signal to the
 > launcher alone therefore killed the bootstrap and left the TUI running.
 > The later lifecycle source change, not yet installed, makes SIGHUP and
-> SIGTERM end the launcher's native job: its live descendants in its own
-> process group, listed by pid and start time. Every still-identical member,
-> the TUI included, receives the signal, then the direct child. The launcher
-> removes the directory only after all of them have exited, waiting at most
-> 10 s; a member still running then keeps the directory, and one stderr line
-> names it. On Linux an integrated launch makes the launcher a child
-> subreaper, so a TUI orphaned when a job or terminal hangup kills the
-> bootstrap first is still awaited; macOS instead waits, without signalling,
-> for same-group orphans reparented to launchd that started after the direct
-> child, which is a heuristic. The exit status remains the direct child's:
-> the installed bootstrap dies by the signal, so the launcher exits 1, not
-> the TUI's own 129 or 143. SIGINT is never forwarded; native keeps its own
-> Ctrl-C handling. When the direct child ends without a HUP or TERM, for
+> SIGTERM to an integrated launch end the launcher's native job: its live
+> descendants in its own process group, listed by pid and start time. Every
+> still-identical member, the TUI included, receives the signal, then the
+> direct child. The launcher removes the directory only once it has proven
+> that job ended: every process it has seen in the job is confirmed gone
+> (vanished, a zombie, or its pid reused), and two consecutive complete
+> listings find no other. It re-lists the job while it waits, so a process a
+> member starts during its exit cleanup is awaited too. A process whose
+> state cannot be read, or a listing that cannot show the whole job (for
+> example unreadable rows under a `/proc` mounted with `hidepid=1`), proves
+> nothing: such a process stays owned and is never signalled. One 10 s
+> bound, counted from the signal, covers the whole termination, the direct
+> child included. Whatever is not proven ended by then, even a stopped
+> bootstrap, keeps the directory, and one stderr line names it; nothing is
+> killed or continued, and nothing removes that directory later. On Linux an
+> integrated launch makes the launcher a child subreaper, so a TUI orphaned
+> when a job or terminal hangup kills the bootstrap first is still owned and
+> signalled. macOS has no subreaper: the launcher only waits for, and never
+> signals, same-group orphans reparented to launchd that started after the
+> direct child. That heuristic has material limits: it can wait for an
+> unrelated process that matches it, without a bound after a no-signal exit,
+> and a later HUP or TERM cannot end an orphaned TUI, which the launcher
+> then only awaits until the bound. The exit status remains the existing
+> mapping of the direct child's: the installed bootstrap dies by the signal,
+> so the launcher exits 1, and that status says nothing about whether the
+> TUI's own exit handler ran. SIGINT is never forwarded; native keeps its
+> own Ctrl-C handling. When the direct child ends without a HUP or TERM, for
 > example a bootstrap killed by a cooked-mode or programmatic SIGINT while
-> the TUI only prompts, the launcher keeps the directory, with no time bound,
-> until every remaining process of its native job has exited, then removes
-> it; the exit status is still the direct child's (1 after that SIGINT). A
-> HUP or TERM during that wait ends the job as above. Removal refuses any path that is
-> not the launcher's own private directory; a refusal is reported in one
-> stderr line without changing the exit status. An inherited ignored SIGHUP,
-> as under `nohup`, stays ignored for the launcher only: Node resets it at
-> startup, so native Qwen still ends on a job or terminal hangup, and the
-> launcher then ends and awaits the rest of its job. A panic, SIGKILL or a
-> Go stack-dump signal such as SIGQUIT can still leave the directory behind.
+> the TUI only prompts, the launcher keeps the directory, with no time
+> bound, until it has proven the rest of its native job ended, and removes
+> it then, while the launcher itself is still running; the exit status is
+> still the direct child's (1 after that SIGINT). A HUP or TERM during that
+> wait ends the job as above. Removal refuses any path that is not the
+> launcher's own private directory; a refusal is reported in one stderr line
+> without changing the exit status. An inherited ignored SIGHUP, as under
+> `nohup`, stays ignored for the launcher only: Node resets it at startup,
+> so native Qwen still ends on a job or terminal hangup, and the launcher
+> then ends and awaits the rest of its job. A panic, SIGKILL or a Go
+> stack-dump signal such as SIGQUIT can still leave the directory behind.
 > Descendants that leave the launcher's process group, such as Qwen's
 > detached shell tools, are neither signalled nor awaited and keep a
-> dangling defaults path; processes started after the job is listed are not
-> awaited. The conflict check sees
-> inherited `QWEN_CODE_SIMPLE`, but native `.env` or settings `env` entries
-> can set `QWEN_CODE_SIMPLE` and enable bare mode after the wrapper's check;
-> Skill hiding therefore depends on the effective native configuration and
-> is not guaranteed for every configuration source. This inherited residual
-> applies to managed and interactive. The lifecycle change leaves native
-> policy, arguments, environment and input unchanged. Its tests run installed
-> Qwen's three-level topology and signal the launcher as a process-group
-> leader, as a PTY session leader and as a non-leader next to an unrelated
-> process, which survives. They also cover job-wide hangups, a signal before
-> the TUI starts, a member still running at the bound, a cooked-mode or
-> programmatic SIGINT that kills the bootstrap while the TUI keeps running,
-> raw-mode Ctrl-C, identity checks and a descendant outside the process group.
+> dangling defaults path; a nested Qwen that such a tool starts after
+> removal runs without the Sessionbus skill hide and without the host's
+> system defaults. The conflict check sees inherited `QWEN_CODE_SIMPLE`, but
+> native `.env` or settings `env` entries can set `QWEN_CODE_SIMPLE` and
+> enable bare mode after the wrapper's check; Skill hiding therefore depends
+> on the effective native configuration and is not guaranteed for every
+> configuration source. This inherited residual applies to managed and
+> interactive. The lifecycle change leaves native policy, arguments,
+> environment and input unchanged. Its tests run installed Qwen's
+> three-level topology and signal the launcher as a process-group leader, as
+> a PTY session leader and as a non-leader next to an unrelated process,
+> which survives. They also cover job-wide hangups, a signal before the TUI
+> starts, a same-group child the TUI starts during its exit cleanup (after
+> HUP, TERM, SIGINT, and HUP following SIGINT), a stopped bootstrap, a
+> member still running at the bound, unreadable and incomplete process
+> listings, a cooked-mode or programmatic SIGINT that kills the bootstrap
+> while the TUI keeps running, raw-mode Ctrl-C, identity checks and a
+> descendant outside the process group. They exercise the launcher's
+> orchestration with stand-in native processes; they do not run native
+> Qwen's TUI, its exit hooks, or an installed build.
 
 > Installed acceptance at `2ba3e12` is surface-specific. The managed-idle
 > QWK924R and managed-active QWQ924R regressions are independently reviewed

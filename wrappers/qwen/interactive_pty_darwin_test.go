@@ -15,3 +15,8 @@ func openTestPTY(*testing.T) (master, terminal *os.File) { return nil, nil }
 func ptyAvailable() bool { return false }
 
 func rawTestPTY(*testing.T, *os.File) {}
+
+// adoptTestOrphans is false on darwin, which has no child subreaper: a stopped
+// process the launcher leaves behind is in an orphaned process group once the
+// launcher exits, so the kernel hangs it up and continues it.
+func adoptTestOrphans(*testing.T) bool { return false }

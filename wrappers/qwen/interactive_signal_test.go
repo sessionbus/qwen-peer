@@ -53,6 +53,11 @@ type signalFixtureDescendant struct {
 	DefaultsPath string
 }
 
+type signalFixtureLate struct {
+	PID   int
+	Start string
+}
+
 // A compiled Go child stands in for native Qwen in the launcher signal tests.
 // It records its launch and each received signal, then exits per mode: 128+N
 // like interactive Qwen, by re-raising the signal, or after a slow shutdown.
@@ -64,6 +69,8 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 	switch os.Getenv("QWEN_SIGNAL_FIXTURE_ROLE") {
 	case "descendant":
 		runSignalFixtureDescendant(records)
+	case "late":
+		runSignalFixtureLate(records)
 	case "bootstrap":
 		runSignalFixtureLevel(records, "bootstrap", "supervisor")
 	case "supervisor":
@@ -112,6 +119,19 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 		_ = publishPublicFixtureFile(filepath.Join(records, "exit.json"), data)
 		os.Exit(code)
 	}
+	// lateExit is the root reviewer's late-owned-child probe: 500 ms into its
+	// exit cleanup the TUI starts a same-group child, then exits 500 ms later
+	// while that child still runs.
+	lateExit := func(number syscall.Signal) {
+		time.AfterFunc(500*time.Millisecond, func() {
+			late := exec.Command(os.Args[0], "-test.run", "^TestInteractiveSignalNativeFixture$")
+			late.Env = append(os.Environ(), "QWEN_SIGNAL_FIXTURE_ROLE=late")
+			if late.Start() != nil {
+				os.Exit(95)
+			}
+			time.AfterFunc(500*time.Millisecond, func() { exitRecord(128 + int(number)) })
+		})
+	}
 	ending := false
 	for count := 1; ; count++ {
 		var s os.Signal
@@ -140,12 +160,16 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 			os.Exit(92)
 		}
 		number := s.(syscall.Signal)
-		if mode == "prompt" {
+		if mode == "prompt" || mode == "prompt-late" {
 			// Like Qwen's TUI: an interrupt only prompts ("Press Ctrl+C again");
 			// HUP or TERM ends it after a short exit cleanup.
 			if number != syscall.SIGINT && !ending {
 				ending = true
-				time.AfterFunc(300*time.Millisecond, func() { exitRecord(128 + int(number)) })
+				if mode == "prompt-late" {
+					lateExit(number)
+				} else {
+					time.AfterFunc(300*time.Millisecond, func() { exitRecord(128 + int(number)) })
+				}
 			}
 			continue
 		}
@@ -154,6 +178,8 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 		case mode == "raise":
 			signal.Reset(s)
 			_ = syscall.Kill(os.Getpid(), number)
+		case mode == "late":
+			lateExit(number)
 		case mode == "slow":
 			// Widen the launcher's wait and cleanup window for a signal storm.
 			for i := 0; i < 2000; i++ {
@@ -218,6 +244,25 @@ func runSignalFixtureDescendant(records string) {
 			break
 		}
 	}
+	os.Exit(0)
+}
+
+// runSignalFixtureLate is the child the TUI starts during its exit cleanup.
+// Like the reviewer's probe it watches the launch defaults for 5 s, records
+// whether they were removed while it ran, and exits 1 s later.
+func runSignalFixtureLate(records string) {
+	self, e := inspectNativeProcess(os.Getpid())
+	data, _ := json.Marshal(signalFixtureLate{PID: self.pid, Start: self.start})
+	if e != nil || publishPublicFixtureFile(filepath.Join(records, "late.json"), data) != nil {
+		os.Exit(96)
+	}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, e := os.Stat(os.Getenv(laneSystemDefaultsEnv)); errors.Is(e, os.ErrNotExist) {
+			_ = publishPublicFixtureFile(filepath.Join(records, "late-without-defaults.json"), data)
+			break
+		}
+	}
+	time.Sleep(time.Second)
 	os.Exit(0)
 }
 
@@ -442,7 +487,7 @@ func (l *signalLaunch) observeRemoval(t *testing.T) func() []int {
 	go func() {
 		for {
 			if _, e := os.Lstat(l.launch.Directory); errors.Is(e, os.ErrNotExist) {
-				result <- l.alive(l.chain...)
+				result <- l.alive(append(slices.Clone(l.chain), l.late()...)...)
 				return
 			}
 			select {
@@ -462,6 +507,30 @@ func (l *signalLaunch) observeRemoval(t *testing.T) func() []int {
 			return nil
 		}
 	}
+}
+
+// late is the child the TUI started during its exit cleanup, once recorded.
+func (l *signalLaunch) late() []nativeProcessIdentity {
+	var late signalFixtureLate
+	data, e := os.ReadFile(filepath.Join(l.records, "late.json"))
+	if e != nil || json.Unmarshal(data, &late) != nil {
+		return nil
+	}
+	return []nativeProcessIdentity{{pid: late.PID, start: late.Start}}
+}
+
+// reports returns the launcher's "left private launch directory" lines.
+func (l *signalLaunch) reports(t *testing.T) []string {
+	t.Helper()
+	output, e := os.ReadFile(l.output)
+	must(t, e)
+	reports := []string{}
+	for _, line := range strings.Split(string(output), "\n") {
+		if strings.HasPrefix(line, "qwen-peer: left private launch directory ") {
+			reports = append(reports, line)
+		}
+	}
+	return reports
 }
 
 // launcherExit returns the launcher's exit code, or -1 with its killing
@@ -768,6 +837,50 @@ func exercisePackagedInteractiveSignals(t *testing.T, public string) {
 		// Only the bootstrap is interrupted; the supervisor and TUI run on.
 		sigint(t, l, func() { must(t, syscall.Kill(l.chain[0].pid, syscall.SIGINT)) }, func() { must(t, l.input.Close()) }, 500*time.Millisecond, 0)
 	})
+	t.Run("sigint-cooked-group-late-child-outlives-tui", func(t *testing.T) {
+		// The TUI's exit after the interrupt starts a same-group child: the
+		// unbounded wait re-lists the job and outlives that child too.
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "late", chain: true, hold: true})
+		removed := l.observeRemoval(t)
+		must(t, syscall.Kill(-l.launcher, syscall.SIGINT))
+		aliveAtRemoval := removed()
+		code, killed := l.wait(t)
+		check(t, killed == 0 && code == 1, "launcher code=%d signal=%v, want exit 1 from the interrupted bootstrap", code, killed)
+		late := l.late()
+		check(t, len(late) == 1, "the TUI started no late child")
+		check(t, len(aliveAtRemoval) == 0, "native processes %v alive when the launch directory was removed", aliveAtRemoval)
+		_, e := os.Stat(filepath.Join(l.records, "late-without-defaults.json"))
+		check(t, errors.Is(e, os.ErrNotExist), "late child %d ran without its launch defaults (%v)", late[0].pid, e)
+		receipts := l.receipts(t)
+		check(t, len(receipts) == 1 && receipts[0] == signalFixtureReceipt{Signal: os.Interrupt.String(), DefaultsPresent: true}, "TUI receipts %+v, want only its own interrupt", receipts)
+		l.assertNoResidue(t)
+	})
+	t.Run("sigint-then-hup-late-child-outlives-tui", func(t *testing.T) {
+		// The drain that a HUP starts after a SIGINT also finds a child the
+		// TUI starts during its exit cleanup (root reviewer B1).
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt-late", chain: true, hold: true})
+		tui := l.chain[len(l.chain)-1]
+		removed := l.observeRemoval(t)
+		must(t, syscall.Kill(-l.launcher, syscall.SIGINT))
+		select {
+		case <-l.done:
+			t.Fatalf("launcher exited after SIGINT while TUI %d ran: %v", tui.pid, l.err)
+		case <-time.After(500 * time.Millisecond):
+		}
+		started := time.Now()
+		must(t, syscall.Kill(l.launcher, syscall.SIGHUP))
+		aliveAtRemoval := removed()
+		code, killed := l.wait(t)
+		check(t, killed == 0 && code == 1 && time.Since(started) < 10*time.Second, "launcher code=%d signal=%v after %s, want exit 1 within the bound", code, killed, time.Since(started))
+		late := l.late()
+		check(t, len(late) == 1, "the TUI started no late child")
+		check(t, len(aliveAtRemoval) == 0, "native processes %v alive when the launch directory was removed", aliveAtRemoval)
+		_, e := os.Stat(filepath.Join(l.records, "late-without-defaults.json"))
+		check(t, errors.Is(e, os.ErrNotExist), "late child %d ran without its launch defaults (%v)", late[0].pid, e)
+		receipts := l.receipts(t)
+		check(t, len(receipts) == 2 && receipts[0].Signal == os.Interrupt.String() && receipts[1] == signalFixtureReceipt{Signal: syscall.SIGHUP.String(), DefaultsPresent: true}, "TUI receipts %+v, want the interrupt then the launcher's hangup", receipts)
+		l.assertNoResidue(t)
+	})
 	t.Run("sigint-then-hup-ends-job-within-bound", func(t *testing.T) {
 		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt", chain: true})
 		tui := l.chain[len(l.chain)-1]
@@ -849,6 +962,88 @@ func exercisePackagedInteractiveSignals(t *testing.T, public string) {
 		check(t, len(receipts) >= 1 && receipts[0].Signal == syscall.SIGHUP.String(), "stubborn TUI receipts %+v", receipts)
 		must(t, os.WriteFile(filepath.Join(l.records, "release"), nil, 0600))
 	})
+	// The TUI starts a same-group child during its exit cleanup and exits
+	// before it (root reviewer B1): the launcher re-lists its job while it
+	// drains, so the directory outlives that child, within the bound.
+	for _, tc := range []struct {
+		name   string
+		signal syscall.Signal
+	}{
+		{"chain-hup-late-child-outlives-tui", syscall.SIGHUP},
+		{"chain-term-late-child-outlives-tui", syscall.SIGTERM},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "late", chain: true, hold: true})
+			removed := l.observeRemoval(t)
+			started := time.Now()
+			must(t, syscall.Kill(l.launcher, tc.signal))
+			aliveAtRemoval := removed()
+			code, killed := l.wait(t)
+			check(t, killed == 0 && code == 1 && time.Since(started) < 10*time.Second, "launcher code=%d signal=%v after %s, want exit 1 within the bound", code, killed, time.Since(started))
+			late := l.late()
+			check(t, len(late) == 1, "the TUI started no late child")
+			check(t, len(aliveAtRemoval) == 0, "native processes %v alive when the launch directory was removed", aliveAtRemoval)
+			_, e := os.Stat(filepath.Join(l.records, "late-without-defaults.json"))
+			check(t, errors.Is(e, os.ErrNotExist), "late child %d ran without its launch defaults (%v)", late[0].pid, e)
+			receipts := l.receipts(t)
+			check(t, len(receipts) >= 1 && receipts[0] == signalFixtureReceipt{Signal: tc.signal.String(), DefaultsPresent: true}, "TUI receipts %+v", receipts)
+			check(t, len(l.alive(append(l.chain, late...)...)) == 0, "native processes %v survive the launcher", l.alive(append(l.chain, late...)...))
+			l.assertNoResidue(t)
+		})
+	}
+	// A stopped bootstrap never takes its TERM (root reviewer B2). One bound
+	// covers the whole termination, the bootstrap included: at the bound the
+	// launcher exits 1 and keeps the directory with one report. It never
+	// kills or continues the bootstrap, which takes the TERM once continued.
+	t.Run("chain-stopped-bootstrap-keeps-directory-at-bound", func(t *testing.T) {
+		// Without adoption here, the launcher's exit orphans the stopped
+		// bootstrap's process group and the kernel hangs it up and continues it.
+		adopted := adoptTestOrphans(t)
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "prompt", chain: true, hold: true})
+		bootstrap := l.chain[0]
+		must(t, syscall.Kill(bootstrap.pid, syscall.SIGSTOP))
+		t.Cleanup(func() { signalNativeTestProcess(bootstrap, syscall.SIGCONT) })
+		started := time.Now()
+		must(t, syscall.Kill(l.launcher, syscall.SIGTERM))
+		code, killed := l.wait(t)
+		elapsed := time.Since(started)
+		check(t, killed == 0 && code == 1 && elapsed >= 10*time.Second && elapsed < 11500*time.Millisecond, "launcher code=%d signal=%v after %s, want exit 1 at the 10 s bound", code, killed, elapsed)
+		check(t, !adopted || len(l.alive(bootstrap)) == 1, "stopped bootstrap %d was killed", bootstrap.pid)
+		want := fmt.Sprintf("qwen-peer: left private launch directory %s: native processes still running after 10s: pid %d", l.launch.Directory, bootstrap.pid)
+		check(t, reflect.DeepEqual(l.reports(t), []string{want}), "reports %q, want one %q", l.reports(t), want)
+		_, e := os.Stat(l.launch.DefaultsPath)
+		check(t, e == nil, "launch defaults removed while bootstrap %d was stopped: %v", bootstrap.pid, e)
+		receipts := l.receipts(t)
+		check(t, len(receipts) >= 1 && receipts[0] == signalFixtureReceipt{Signal: syscall.SIGTERM.String(), DefaultsPresent: true}, "TUI receipts %+v", receipts)
+		check(t, len(l.alive(l.chain[1:]...)) == 0, "supervisor or TUI %v outlived the bound", l.alive(l.chain[1:]...))
+		if adopted {
+			must(t, syscall.Kill(bootstrap.pid, syscall.SIGCONT))
+			var status syscall.WaitStatus
+			_, e = syscall.Wait4(bootstrap.pid, &status, 0, nil)
+			check(t, e == nil && status.Signaled() && status.Signal() == syscall.SIGTERM, "continued bootstrap %d ended %v (%v), want its pending TERM", bootstrap.pid, status, e)
+		}
+	})
+	t.Run("chain-stopped-bootstrap-shares-one-bound", func(t *testing.T) {
+		// The bootstrap resumes 3 s in and dies; the TUI never exits. The
+		// bound still ends 10 s after the signal, not 10 s after the bootstrap.
+		l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "stubborn", chain: true, hold: true})
+		bootstrap, tui := l.chain[0], l.chain[len(l.chain)-1]
+		must(t, syscall.Kill(bootstrap.pid, syscall.SIGSTOP))
+		t.Cleanup(func() { signalNativeTestProcess(bootstrap, syscall.SIGCONT) })
+		started := time.Now()
+		must(t, syscall.Kill(l.launcher, syscall.SIGTERM))
+		time.Sleep(3 * time.Second)
+		must(t, syscall.Kill(bootstrap.pid, syscall.SIGCONT))
+		code, killed := l.wait(t)
+		elapsed := time.Since(started)
+		check(t, killed == 0 && code == 1 && elapsed < 11500*time.Millisecond, "launcher code=%d signal=%v after %s, want exit 1 at the one 10 s bound", code, killed, elapsed)
+		want := fmt.Sprintf("qwen-peer: left private launch directory %s: native processes still running after 10s: pid %d", l.launch.Directory, tui.pid)
+		check(t, reflect.DeepEqual(l.reports(t), []string{want}), "reports %q, want one %q", l.reports(t), want)
+		check(t, len(l.alive(tui)) == 1 && len(l.alive(bootstrap)) == 0, "TUI alive %v, bootstrap alive %v", l.alive(tui), l.alive(bootstrap))
+		_, e := os.Stat(l.launch.DefaultsPath)
+		check(t, e == nil, "launch defaults removed while TUI %d ran: %v", tui.pid, e)
+		must(t, os.WriteFile(filepath.Join(l.records, "release"), nil, 0600))
+	})
 	t.Run("hup-descendant-outlives-launcher", func(t *testing.T) {
 		l := startSignalLaunch(t, public, "descendant", false)
 		check(t, l.launch.Descendant > 0, "native descendant was not started")
@@ -868,8 +1063,9 @@ func exercisePackagedInteractiveSignals(t *testing.T, public string) {
 		code, killed := l.wait(t)
 		check(t, killed == 0 && code == 129, "launcher code=%d signal=%v", code, killed)
 		l.assertNoResidue(t)
-		// Documented residual: the launcher waits for and signals only its
-		// direct child. The descendant survives with a dangling defaults path.
+		// Documented residual: a descendant outside the launcher's process
+		// group is neither signalled nor awaited. It survives with a dangling
+		// defaults path.
 		must(t, syscall.Kill(descendant.PID, 0))
 		_, e = os.Stat(descendant.DefaultsPath)
 		check(t, errors.Is(e, os.ErrNotExist), "descendant defaults path %q: %v", descendant.DefaultsPath, e)

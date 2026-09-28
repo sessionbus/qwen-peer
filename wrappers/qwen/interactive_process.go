@@ -3,6 +3,10 @@ package qwen
 
 import "errors"
 
+// errNativeProcessNotLive reports a process that has exited: a zombie, or a
+// PID that now names another process.
+var errNativeProcessNotLive = errors.New("native process is not live")
+
 type nativeProcessIdentity struct {
 	pid, parent int
 	start       string

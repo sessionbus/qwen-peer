@@ -22,7 +22,7 @@ func inspectNativeProcess(pid int) (nativeProcessIdentity, error) {
 	}
 	fields := strings.Fields(string(stat[end+1:]))
 	if len(fields) <= 19 || fields[0] == "Z" || fields[0] == "X" {
-		return p, errors.New("native process is not live")
+		return p, errNativeProcessNotLive
 	}
 	p.parent, err = strconv.Atoi(fields[1])
 	if err != nil {

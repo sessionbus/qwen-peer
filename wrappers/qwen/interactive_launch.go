@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/sessionbus/peer-common/host"
@@ -167,7 +168,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	}
 	args := slices.Clone(plan.Args)
 	defaultsPath := ""
-	var survivors []nativeProcessIdentity
+	var job *nativeJobWatch
 	if environmentValue(plan.Env, InteractiveEnv) == "launch" {
 		alias, e := InstalledMCPExecutable()
 		if e != nil {
@@ -183,11 +184,12 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 			return e
 		}
 		directory = absolute
-		// Removed once, on return, after any started native job has ended. A
-		// job still running at the wait bound keeps it; the exit status stays.
+		// Removed once, on return, after any started native job is proven
+		// ended. A job not proven ended by the wait bound keeps it, reported
+		// once; nothing removes it later. The exit status stays.
 		defer func() {
-			if len(survivors) != 0 {
-				fmt.Fprintf(os.Stderr, "qwen-peer: left private launch directory %s: native processes still running after %s: %s\n", directory, nativeJobWait, describeNativeJob(survivors))
+			if job != nil && !job.ended {
+				fmt.Fprintf(os.Stderr, "qwen-peer: left private launch directory %s: %s\n", directory, job.kept())
 				return
 			}
 			cleanupLaunchDirectory(os.Stderr, directory, os.Getuid())
@@ -249,6 +251,7 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	nativeDirectChild.Store(int64(child.Process.Pid))
 	defer nativeDirectChild.Store(0)
 	direct, _ := inspectNativeProcess(child.Process.Pid)
+	job = &nativeJobWatch{direct: direct}
 	done := make(chan error, 1)
 	go func() { done <- child.Wait() }()
 	var forward syscall.Signal
@@ -261,29 +264,40 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 		if forward, ended = nativeJobSignal(ctx, err); !ended {
 			// No job-ending signal: whatever the direct child left running,
 			// such as a TUI whose bootstrap a SIGINT killed, keeps the launch
-			// directory until it exits.
-			survivors = awaitNativeJob(ctx, direct)
+			// directory until it is proven ended.
+			job.await(ctx)
 			return err
 		}
-		owned, waitOnly := nativeJob(direct)
-		signalNativeJob(owned, forward)
-		survivors = waitNativeJob(joinNativeJobs(owned, waitOnly), nativeJobWait)
+		deadline := time.Now().Add(nativeJobWait)
+		job.deliver(forward)
+		job.settle(deadline)
 		return err
 	case <-ctx.Done():
 		forward = forwardedSignal(ctx)
 	}
+	// One bound covers the whole termination, the direct child included, so a
+	// stopped bootstrap cannot hold the launcher past it.
+	deadline := time.Now().Add(nativeJobWait)
 	// List the job before signalling: the direct child's death reparents its
 	// descendants. They receive the signal first, the direct child last.
-	owned, _ := nativeJob(direct)
-	signalNativeJob(owned, forward)
-	if e := child.Process.Signal(forward); e != nil && !errors.Is(e, os.ErrProcessDone) {
-		err = errors.Join(e, <-done)
-	} else {
-		err = <-done
+	job.deliver(forward)
+	e := child.Process.Signal(forward)
+	select {
+	case err = <-done:
+	case <-time.After(time.Until(deadline)):
+		// The direct child outlived the bound, for example stopped. It is
+		// never killed or continued; it is reported and the directory stays.
+		job.check()
+		_, _ = job.list()
+		job.members = joinNativeJobs([]nativeProcessIdentity{{pid: child.Process.Pid, start: direct.start}}, job.members)
+		return context.Cause(ctx)
+	}
+	if e != nil && !errors.Is(e, os.ErrProcessDone) {
+		err = errors.Join(e, err)
 	}
 	// Orphans exist only once the direct child has died: list the job again.
-	after, waitOnly := nativeJob(direct)
-	survivors = waitNativeJob(joinNativeJobs(owned, after, waitOnly), nativeJobWait)
+	_, _ = job.list()
+	job.settle(deadline)
 	return err
 }
 

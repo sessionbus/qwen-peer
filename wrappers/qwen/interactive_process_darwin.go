@@ -14,7 +14,7 @@ func inspectNativeProcess(pid int) (nativeProcessIdentity, error) {
 		return p, err
 	}
 	if int(info.Proc.P_pid) != pid || info.Proc.P_stat == 5 {
-		return p, errors.New("native process is not live")
+		return p, errNativeProcessNotLive
 	}
 	p.parent = int(info.Eproc.Ppid)
 	p.start = fmt.Sprintf("%d:%d", info.Proc.P_starttime.Sec, info.Proc.P_starttime.Usec)

@@ -151,15 +151,18 @@ bounded at eight, and incoming bus handler work at 32. This is temporary native
 transport, not a wrapper history/recovery store.
 
 Terminal-group SIGINT is left to native Qwen; the launcher does not convert it
-into TERM or send a duplicate interrupt. Normal exit ends the native chain;
-TERM or HUP to the launcher is delivered to its whole native job, which is
-awaited before those resources are removed. If the chain's bootstrap ends
-first without HUP or TERM, for example on a cooked-mode SIGINT, the resources
-stay until the remaining native processes exit. Helper
-EOF, native-parent loss or launcher loss cancels its sole Caller and observers.
-If the launcher is killed abruptly, the integration retires but native processes
-and unique files may remain; there is no claim of reaping/cleanup by a dead
-launcher and no recovery from these files.
+into TERM or send a duplicate interrupt. Normal exit ends the native chain; TERM
+or HUP to an integrated launcher is delivered to its whole native job. Those
+resources are removed only once the job is proven ended, re-listed while it ends
+and within one 10 s bound; a process whose state cannot be read proves nothing,
+and whatever is not proven ended at the bound keeps them, with no later cleanup.
+If the chain's bootstrap ends first without HUP or TERM, for example on a
+cooked-mode SIGINT, the resources stay, while the launcher runs, until the
+remaining native processes are proven ended. Helper EOF, native-parent loss or
+launcher loss cancels its sole Caller and observers. If the launcher is killed
+abruptly, the integration retires but native processes and unique files may
+remain; there is no claim of reaping/cleanup by a dead launcher and no recovery
+from these files.
 
 ## Session switching limitation
 
