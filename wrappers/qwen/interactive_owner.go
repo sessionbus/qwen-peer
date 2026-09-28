@@ -100,7 +100,7 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 		return nil, err
 	}
 	lifetime, cancel := context.WithCancel(ctx)
-	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, cwd: cwd, token: environmentValue(env, ControllerTokenEnv), ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}), writeGate: make(chan struct{}, 1)}
+	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, cwd: cwd, token: environmentValue(env, ControllerTokenEnv), ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}, 32), writeGate: make(chan struct{}, 1)}
 	b.changed = make(chan struct{}, 1)
 	b.dial = (&net.Dialer{}).DialContext
 	b.retry = func(ctx context.Context) bool {

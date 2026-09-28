@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -188,6 +189,49 @@ func TestNativeOwnerReconnectAndSupersession(t *testing.T) {
 	must(t, err)
 	defer listener.Close()
 	inbox := filepath.Join(t.TempDir(), "native.sock")
+	inboxListener, err := net.Listen("unix", inbox)
+	must(t, err)
+	defer inboxListener.Close()
+	frames := make(chan struct {
+		body string
+		err  error
+	}, 2)
+	go func() {
+		for range 2 {
+			c, e := inboxListener.Accept()
+			if e != nil {
+				frames <- struct {
+					body string
+					err  error
+				}{err: e}
+				return
+			}
+			_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+			decoder := json.NewDecoder(c)
+			var auth struct {
+				Type  string `json:"type"`
+				Token string `json:"token"`
+			}
+			var user struct {
+				Type    string `json:"type"`
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			}
+			e = decoder.Decode(&auth)
+			if e == nil {
+				e = decoder.Decode(&user)
+			}
+			if e == nil && (auth.Type != "auth" || auth.Token != fixtureControllerToken || user.Type != "user") {
+				e = errors.New("native inbox frame shape changed")
+			}
+			_ = c.Close()
+			frames <- struct {
+				body string
+				err  error
+			}{body: user.Message.Content, err: e}
+		}
+	}()
 	publishNativeRegistry(t, b, inbox, "first")
 	b.Initialized()
 	for attempt := 0; attempt < 2; attempt++ {
@@ -222,7 +266,47 @@ func TestNativeOwnerReconnectAndSupersession(t *testing.T) {
 			must(t, c.Close())
 			continue
 		}
-		must(t, enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 99, "method": "session.superseded", "params": map[string]any{}}))
+		// Exercise the actual SDK request handler, not deliverNative directly.
+		// The limiter must admit both requests and keep this connection usable.
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			b.mu.Lock()
+			admitted := b.admitted && b.conn != nil
+			b.mu.Unlock()
+			if admitted {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("reconnected owner was not admitted")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		for index := 1; index <= 2; index++ {
+			marker := fmt.Sprintf("handler-message-%d", index)
+			must(t, enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 100 + index, "method": "message.deliver", "params": delivery(marker)}))
+			var reply struct {
+				ID     int             `json:"id"`
+				Result json.RawMessage `json:"result"`
+				Error  json.RawMessage `json:"error"`
+			}
+			must(t, dec.Decode(&reply))
+			var receipt struct {
+				Disposition string `json:"disposition"`
+			}
+			must(t, json.Unmarshal(reply.Result, &receipt))
+			if reply.ID != 100+index || len(reply.Error) != 0 || receipt.Disposition != "written" {
+				t.Fatalf("message.deliver response %d: id=%d disposition=%q error=%s", index, reply.ID, receipt.Disposition, reply.Error)
+			}
+			select {
+			case got := <-frames:
+				if got.err != nil || !strings.Contains(got.body, marker) {
+					t.Fatalf("native inbox frame %d: error=%v marker_present=%v", index, got.err, strings.Contains(got.body, marker))
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("handler receipt had no native inbox frame")
+			}
+		}
+		must(t, enc.Encode(map[string]any{"jsonrpc": "2.0", "id": 103, "method": "session.superseded", "params": map[string]any{}}))
 		select {
 		case <-b.done:
 		case <-time.After(5 * time.Second):
