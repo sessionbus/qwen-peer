@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sessionbus/peer-common/host"
+	"github.com/sessionbus/peer-common/testsocket"
 )
 
 const fixtureControllerToken = "qpc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -24,7 +25,7 @@ func nativeInboxFixture(t *testing.T) (*interactiveOwner, string) {
 	t.Helper()
 	home := t.TempDir()
 	must(t, os.Mkdir(filepath.Join(home, "sessions"), 0700))
-	bus := filepath.Join(t.TempDir(), "bus.sock")
+	bus := filepath.Join(testsocket.Directory(t), "bus.sock")
 	binding, err := interactiveBinding(bus, "", []string{"a"})
 	must(t, err)
 	b, err := newInteractiveOwner(context.Background(), []string{InteractiveEnv + "=" + binding, nativeSessionEnv + "=" + fixtureNativeID, "QWEN_HOME=" + home, ControllerTokenEnv + "=" + fixtureControllerToken}, os.Getpid())
@@ -137,7 +138,7 @@ func TestNativeInboxCancellationBeforeNewSend(t *testing.T) {
 }
 func TestNativeInboxFrameAndRegistryIdentity(t *testing.T) {
 	b, _ := nativeInboxFixture(t)
-	inbox := filepath.Join(t.TempDir(), "native.sock")
+	inbox := filepath.Join(testsocket.Directory(t), "native.sock")
 	listener, err := net.Listen("unix", inbox)
 	must(t, err)
 	defer listener.Close()
@@ -188,7 +189,7 @@ func TestNativeOwnerReconnectAndSupersession(t *testing.T) {
 	listener, err := net.Listen("unix", bus)
 	must(t, err)
 	defer listener.Close()
-	inbox := filepath.Join(t.TempDir(), "native.sock")
+	inbox := filepath.Join(testsocket.Directory(t), "native.sock")
 	inboxListener, err := net.Listen("unix", inbox)
 	must(t, err)
 	defer inboxListener.Close()
