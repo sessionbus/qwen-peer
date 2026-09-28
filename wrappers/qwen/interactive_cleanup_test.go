@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -159,10 +160,24 @@ func TestNotifyInteractiveRecordsFirstSignal(t *testing.T) {
 	}
 	var received launchSignal
 	check(t, errors.Is(ctx.Err(), context.Canceled) && errors.As(context.Cause(ctx), &received) && received.Signal == syscall.SIGUSR2, "cause = %v", context.Cause(ctx))
+	// kill to this process is process-directed: another thread can take the
+	// signal after kill returns, and signal.Stop waits only for deliveries
+	// already under way. The witness proves this SIGUSR1 was delivered, to
+	// every registration, before stop, so it cannot reach the next one.
+	witness := make(chan os.Signal, 1)
+	signal.Notify(witness, syscall.SIGUSR1)
 	must(t, syscall.Kill(os.Getpid(), syscall.SIGUSR1))
+	select {
+	case <-witness:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SIGUSR1 was not delivered")
+	}
+	signal.Stop(witness)
 	stop()
 	check(t, errors.As(context.Cause(ctx), &received) && received.Signal == syscall.SIGUSR2, "a later signal or stop replaced the recorded signal: %v", context.Cause(ctx))
-	plain, stopPlain := NotifyInteractive(context.Background(), syscall.SIGUSR1)
+	// A registration that is stopped without any signal records none. It uses
+	// a signal this test never sends, so no signal from above can reach it.
+	plain, stopPlain := NotifyInteractive(context.Background(), syscall.SIGWINCH)
 	stopPlain()
 	check(t, errors.Is(plain.Err(), context.Canceled) && !errors.As(context.Cause(plain), &received), "stop recorded a signal: %v", context.Cause(plain))
 }
@@ -552,6 +567,17 @@ func TestNativeJobSettleRelistsWhileMembersRun(t *testing.T) {
 	job.settle(started.Add(1500 * time.Millisecond))
 	check(t, !job.ended && len(job.members) == 2 && job.members[1].pid == late.pid && *listings >= 1, "watch %+v after %d listings, want the member started during the drain", job, *listings)
 	check(t, job.kept() == fmt.Sprintf("native processes still running after 10s: pid %d, pid %d", live.pid, late.pid), "report %q", job.kept())
+}
+
+// A dying multi-threaded bootstrap can show as a zombie while its children
+// are still attached to it: the listing traverses zombies, so a live TUI under
+// one is still found, while the zombie itself is never listed.
+func TestNativeJobTraversesZombies(t *testing.T) {
+	bootstrap, tui := nativeJobMember(1<<29), nativeJobMember(1<<29+1)
+	bootstrap.live, tui.parent = false, bootstrap.pid
+	replaceNativeProcesses(t, []nativeProcessEntry{bootstrap, tui})
+	owned, _, err := nativeJob(nativeProcessIdentity{})
+	check(t, err == nil && len(owned) == 1 && owned[0] == tui.nativeProcessIdentity, "listing %v (%v), want the TUI under the zombie bootstrap", owned, err)
 }
 
 // failNativeProcesses makes listings fail until *failing is false.

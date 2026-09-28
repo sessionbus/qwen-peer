@@ -148,8 +148,11 @@ func TestInteractiveSignalNativeFixture(t *testing.T) {
 				}
 				os.Exit(37)
 			case <-release.C:
-				// A stubborn native outlives every signal until released.
-				if _, e := os.Stat(filepath.Join(records, "release")); e == nil || mode == "stubborn" && func() bool { _, e := os.Stat(records); return e != nil }() {
+				// Every mode, a stubborn native included, ends once released or
+				// once its test has removed the records: no fixture outlives
+				// the test that started it.
+				_, released := os.Stat(filepath.Join(records, "release"))
+				if _, present := os.Stat(records); released == nil || present != nil {
 					os.Exit(0)
 				}
 			}
@@ -408,6 +411,7 @@ func startSignalLaunchWith(t *testing.T, public string, options signalLaunchOpti
 			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		}
 		_ = os.WriteFile(filepath.Join(records, "release"), nil, 0600)
+		l.endFixtureGroup(command.Process.Pid)
 		if l.sibling.pid != 0 {
 			signalNativeTestProcess(l.sibling, syscall.SIGKILL)
 		}
@@ -459,6 +463,31 @@ func startSignalLaunchWith(t *testing.T, public string, options signalLaunchOpti
 		check(t, l.launcher == command.Process.Pid, "launcher %d is not the started process %d", l.launcher, command.Process.Pid)
 	}
 	return l
+}
+
+// endFixtureGroup ends whatever is left of this launch's own process group
+// when its test ends, on every path: a chain that a failed assertion, an
+// older production revision or a mutated launcher left running. Released
+// fixtures get two seconds to exit. The group is killed only while one of
+// its known processes, pinned by pid and start, still holds that group ID,
+// so the ID cannot have been reused.
+func (l *signalLaunch) endFixtureGroup(group int) {
+	known := append(append(slices.Clone(l.chain), l.late()...), l.sibling)
+	held := func() bool {
+		for _, p := range known {
+			if current, e := inspectNativeProcess(p.pid); p.pid != 0 && e == nil && current.start == p.start {
+				if g, e := syscall.Getpgid(p.pid); e == nil && g == group {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for deadline := time.Now().Add(2 * time.Second); held() && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	}
+	if held() {
+		_ = syscall.Kill(-group, syscall.SIGKILL)
+	}
 }
 
 func mustInspect(t *testing.T, pid int) nativeProcessIdentity {
