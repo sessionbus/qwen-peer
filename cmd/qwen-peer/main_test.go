@@ -34,28 +34,62 @@ func TestPrivateEntryRejectsArgumentsAndMissingEndpoint(t *testing.T) {
 	}
 }
 
-// Lane workers and the private MCP entry keep base signals and delivery; only
-// the interactive launcher owns SIGHUP, unless it was inherited ignored.
+// Lane workers, the private MCP entry and native passthrough keep base signals
+// and delivery; only the integrated interactive launcher owns SIGHUP, unless
+// it was inherited ignored.
 func TestEntrySignals(t *testing.T) {
 	notifyContext, notifyInteractive := reflect.ValueOf(signal.NotifyContext).Pointer(), reflect.ValueOf(qwen.NotifyInteractive).Pointer()
 	base := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	for _, tc := range []struct {
-		name, basename string
-		lane, ignored  bool
-		want           []os.Signal
-		notify         uintptr
+		name, basename            string
+		lane, integrated, ignored bool
+		want                      []os.Signal
+		notify                    uintptr
 	}{
-		{"lane", "qwen-peer", true, false, base, notifyContext},
-		{"lane-hangup-ignored", "qwen-peer", true, true, base, notifyContext},
-		{"private-alias", qwen.PrivateAlias, false, false, base, notifyContext},
-		{"private-alias-lane", qwen.PrivateAlias, true, false, base, notifyContext},
-		{"interactive", "qwen-peer", false, false, []os.Signal{syscall.SIGTERM, syscall.SIGHUP}, notifyInteractive},
-		{"interactive-hangup-ignored", "qwen-peer", false, true, []os.Signal{syscall.SIGTERM}, notifyInteractive},
+		{"lane", "qwen-peer", true, false, false, base, notifyContext},
+		{"lane-hangup-ignored", "qwen-peer", true, false, true, base, notifyContext},
+		{"private-alias", qwen.PrivateAlias, false, false, false, base, notifyContext},
+		{"private-alias-lane", qwen.PrivateAlias, true, false, false, base, notifyContext},
+		{"passthrough", "qwen-peer", false, false, false, []os.Signal{syscall.SIGTERM}, notifyContext},
+		{"passthrough-hangup-ignored", "qwen-peer", false, false, true, []os.Signal{syscall.SIGTERM}, notifyContext},
+		{"interactive", "qwen-peer", false, true, false, []os.Signal{syscall.SIGTERM, syscall.SIGHUP}, notifyInteractive},
+		{"interactive-hangup-ignored", "qwen-peer", false, true, true, []os.Signal{syscall.SIGTERM}, notifyInteractive},
 	} {
-		signals, notify := entrySignals(tc.basename, tc.lane, tc.ignored)
+		signals, notify := entrySignals(tc.basename, tc.lane, tc.integrated, tc.ignored)
 		if !reflect.DeepEqual(signals, tc.want) || reflect.ValueOf(notify).Pointer() != tc.notify {
 			t.Errorf("%s: signals %v, NotifyInteractive %v", tc.name, signals, reflect.ValueOf(notify).Pointer() == notifyInteractive)
 		}
+	}
+}
+
+// Only an integrated launch counts as one: native passthrough, before or after
+// wrapper flags, invalid arguments, lanes and the private entry do not.
+func TestIntegratedLaunchOnlyForIntegratedPlans(t *testing.T) {
+	t.Setenv(host.TokenEnv, "")
+	if err := os.Unsetenv(host.TokenEnv); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		basename   string
+		arguments  []string
+		integrated bool
+	}{
+		{"qwen-peer", []string{"-n", "chosen"}, true},
+		{"qwen-peer", nil, true},
+		{"qwen-peer", []string{"mcp", "list"}, false},
+		{"qwen-peer", []string{"-n", "chosen", "mcp", "list"}, false},
+		{"qwen-peer", []string{"--help"}, false},
+		{"qwen-peer", []string{"--version", "--json"}, false},
+		{"qwen-peer", []string{"-p", "headless"}, false},
+		{qwen.PrivateAlias, nil, false},
+	} {
+		if got := integratedLaunch(tc.basename, tc.arguments); got != tc.integrated {
+			t.Errorf("%s %v: integrated %v, want %v", tc.basename, tc.arguments, got, tc.integrated)
+		}
+	}
+	t.Setenv(host.TokenEnv, "token")
+	if integratedLaunch("qwen-peer", nil) {
+		t.Error("a lane worker counted as an integrated launch")
 	}
 }
 

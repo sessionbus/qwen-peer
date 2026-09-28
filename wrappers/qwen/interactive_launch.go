@@ -243,6 +243,9 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
+	if !IntegratedLaunch(plan) {
+		return runNativePassthrough(ctx, child)
+	}
 	nativeDirectChild.Store(-1)
 	if err = child.Start(); err != nil {
 		nativeDirectChild.Store(0)
@@ -299,6 +302,26 @@ func RunInteractive(ctx context.Context, plan host.ExecPlan) error {
 	_, _ = job.list()
 	job.settle(deadline)
 	return err
+}
+
+// runNativePassthrough runs a native passthrough invocation, which owns no
+// launch directory and no native job, with base signal handling: SIGTERM
+// goes to the direct child only, which is awaited.
+func runNativePassthrough(ctx context.Context, child *exec.Cmd) error {
+	if err := child.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- child.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		if e := child.Process.Signal(syscall.SIGTERM); e != nil && !errors.Is(e, os.ErrProcessDone) {
+			return errors.Join(e, <-done)
+		}
+		return <-done
+	}
 }
 
 // forwardedSignal is the signal that ended the launch; other cancellation is

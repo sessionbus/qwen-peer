@@ -153,9 +153,10 @@ is never forwarded: if a cooked-mode or programmatic SIGINT kills the
 bootstrap while the TUI keeps running, the still-running launcher keeps the
 directory until it has proven the rest of its native job ended, with no time
 bound. On macOS, which has no subreaper, orphans are only awaited through a
-start-time heuristic with material limits. An inherited ignored SIGHUP stays
-ignored for the launcher only, because Node resets it. A panic, SIGKILL or a
-Go stack-dump signal such as SIGQUIT can still leave the directory, and
+start-time heuristic with material limits. Native passthrough, which owns no
+launch directory, keeps base signal handling. An inherited ignored SIGHUP
+stays ignored for the launcher only, because Node resets it. A panic, SIGKILL
+or a Go stack-dump signal such as SIGQUIT can still leave the directory, and
 descendants outside the process group, such as detached shell tools, keep a
 dangling defaults path, as does a nested Qwen such a tool starts.
 

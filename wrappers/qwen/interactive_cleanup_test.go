@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sessionbus/peer-common/host"
 	"golang.org/x/sys/unix"
 )
 
@@ -168,19 +167,23 @@ func TestNotifyInteractiveRecordsFirstSignal(t *testing.T) {
 	check(t, errors.Is(plain.Err(), context.Canceled) && !errors.As(context.Cause(plain), &received), "stop recorded a signal: %v", context.Cause(plain))
 }
 
-// A launch cancelled by a recorded signal forwards that signal; any other
-// cancellation keeps forwarding SIGTERM. A single-level native's own status is
-// returned.
+// An integrated launch cancelled by a recorded signal forwards that signal;
+// any other cancellation keeps forwarding SIGTERM. Native passthrough keeps
+// base forwarding: SIGTERM whatever the cause. A single-level native's own
+// status is returned.
 func TestRunInteractiveForwardsCancellingSignal(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		cause error
-		want  string
-		code  int
+		name        string
+		passthrough bool
+		cause       error
+		want        string
+		code        int
 	}{
-		{"hangup", launchSignal{syscall.SIGHUP}, "hangup", 129},
-		{"terminate", launchSignal{syscall.SIGTERM}, "terminated", 143},
-		{"plain-cancel", nil, "terminated", 143},
+		{"hangup", false, launchSignal{syscall.SIGHUP}, "hangup", 129},
+		{"terminate", false, launchSignal{syscall.SIGTERM}, "terminated", 143},
+		{"plain-cancel", false, nil, "terminated", 143},
+		{"passthrough-hangup-cause", true, launchSignal{syscall.SIGHUP}, "terminated", 143},
+		{"passthrough-terminate", true, launchSignal{syscall.SIGTERM}, "terminated", 143},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			directory := t.TempDir()
@@ -193,12 +196,19 @@ trap 'echo terminated > "$RECORD"; exit 143' TERM
 : > "$READY"
 while [ -e "$READY" ]; do sleep 0.02; done
 `), 0700))
+			t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("TMPDIR", t.TempDir())
+			arguments := []string{"-n", "chosen"}
+			if tc.passthrough {
+				arguments = []string{"mcp", "list"}
+			}
+			plan, e := InteractivePlan(arguments, append(os.Environ(), "READY="+ready, "RECORD="+record, laneSystemDefaultsEnv+"="+filepath.Join(directory, "absent.json")))
+			must(t, e)
+			check(t, IntegratedLaunch(plan) != tc.passthrough, "plan integrated=%v for %v", IntegratedLaunch(plan), arguments)
 			ctx, cancel := context.WithCancelCause(context.Background())
 			defer cancel(nil)
 			result := make(chan error, 1)
-			go func() {
-				result <- RunInteractive(ctx, host.ExecPlan{Path: native, Env: append(os.Environ(), "READY="+ready, "RECORD="+record)})
-			}()
+			go func() { result <- RunInteractive(ctx, plan) }()
 			for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 				if _, e := os.Stat(ready); e == nil {
 					break

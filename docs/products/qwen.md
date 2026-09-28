@@ -142,35 +142,39 @@
 > bound, until it has proven the rest of its native job ended, and removes
 > it then, while the launcher itself is still running; the exit status is
 > still the direct child's (1 after that SIGINT). A HUP or TERM during that
-> wait ends the job as above. Removal refuses any path that is not the
-> launcher's own private directory; a refusal is reported in one stderr line
-> without changing the exit status. An inherited ignored SIGHUP, as under
-> `nohup`, stays ignored for the launcher only: Node resets it at startup,
-> so native Qwen still ends on a job or terminal hangup, and the launcher
-> then ends and awaits the rest of its job. A panic, SIGKILL or a Go
-> stack-dump signal such as SIGQUIT can still leave the directory behind.
-> Descendants that leave the launcher's process group, such as Qwen's
-> detached shell tools, are neither signalled nor awaited and keep a
-> dangling defaults path; a nested Qwen that such a tool starts after
-> removal runs without the Sessionbus skill hide and without the host's
-> system defaults. The conflict check sees inherited `QWEN_CODE_SIMPLE`, but
-> native `.env` or settings `env` entries can set `QWEN_CODE_SIMPLE` and
-> enable bare mode after the wrapper's check; Skill hiding therefore depends
-> on the effective native configuration and is not guaranteed for every
-> configuration source. This inherited residual applies to managed and
-> interactive. The lifecycle change leaves native policy, arguments,
-> environment and input unchanged. Its tests run installed Qwen's
-> three-level topology and signal the launcher as a process-group leader, as
-> a PTY session leader and as a non-leader next to an unrelated process,
-> which survives. They also cover job-wide hangups, a signal before the TUI
-> starts, a same-group child the TUI starts during its exit cleanup (after
-> HUP, TERM, SIGINT, and HUP following SIGINT), a stopped bootstrap, a
-> member still running at the bound, unreadable and incomplete process
-> listings, a cooked-mode or programmatic SIGINT that kills the bootstrap
-> while the TUI keeps running, raw-mode Ctrl-C, identity checks and a
-> descendant outside the process group. They exercise the launcher's
-> orchestration with stand-in native processes; they do not run native
-> Qwen's TUI, its exit hooks, or an installed build.
+> wait ends the job as above. Native passthrough (`mcp …`,
+> `--native-version`, `--help` and the other native subcommands) owns no
+> launch directory and keeps base signal handling: SIGTERM goes to the
+> direct child only and is awaited, SIGHUP is not handled, and SIGINT is
+> left to native. Removal refuses any path that is not the launcher's own
+> private directory; a refusal is reported in one stderr line without
+> changing the exit status. An inherited ignored SIGHUP, as under `nohup`,
+> stays ignored for the launcher only: Node resets it at startup, so native
+> Qwen still ends on a job or terminal hangup, and the launcher then ends
+> and awaits the rest of its job. A panic, SIGKILL or a Go stack-dump signal
+> such as SIGQUIT can still leave the directory behind. Descendants that
+> leave the launcher's process group, such as Qwen's detached shell tools,
+> are neither signalled nor awaited and keep a dangling defaults path; a
+> nested Qwen that such a tool starts after removal runs without the
+> Sessionbus skill hide and without the host's system defaults. The conflict
+> check sees inherited `QWEN_CODE_SIMPLE`, but native `.env` or settings
+> `env` entries can set `QWEN_CODE_SIMPLE` and enable bare mode after the
+> wrapper's check; Skill hiding therefore depends on the effective native
+> configuration and is not guaranteed for every configuration source. This
+> inherited residual applies to managed and interactive. The lifecycle
+> change leaves native policy, arguments, environment and input unchanged.
+> Its tests run installed Qwen's three-level topology and signal the
+> launcher as a process-group leader, as a PTY session leader and as a
+> non-leader next to an unrelated process, which survives. They also cover
+> job-wide hangups, a signal before the TUI starts, a same-group child the
+> TUI starts during its exit cleanup (after HUP, TERM, SIGINT, and HUP
+> following SIGINT), a stopped bootstrap, a member still running at the
+> bound, unreadable and incomplete process listings, a cooked-mode or
+> programmatic SIGINT that kills the bootstrap while the TUI keeps running,
+> raw-mode Ctrl-C, identity checks, passthrough signal routing identical to
+> base and a descendant outside the process group. They exercise the
+> launcher's orchestration with stand-in native processes; they do not run
+> native Qwen's TUI, its exit hooks, or an installed build.
 
 > Installed acceptance at `2ba3e12` is surface-specific. The managed-idle
 > QWK924R and managed-active QWQ924R regressions are independently reviewed

@@ -314,6 +314,9 @@ type signalLaunchOptions struct {
 	// raw puts the session leader's terminal in raw mode, as Qwen's TUI does:
 	// Ctrl-C is then a byte, not a SIGINT.
 	raw bool
+	// args replaces the integrated launch's arguments, for native passthrough,
+	// which has no launch directory.
+	args []string
 }
 
 func startSignalLaunch(t *testing.T, public, mode string, ignoreHangup bool) *signalLaunch {
@@ -344,6 +347,9 @@ func startSignalLaunchWith(t *testing.T, public string, options signalLaunchOpti
 		env = append(env, "QWEN_SIGNAL_FIXTURE_HOLD=1")
 	}
 	args := []string{"-n", "chosen", "-g", "a"}
+	if options.args != nil {
+		args = options.args
+	}
 	command := exec.Command(public, args...)
 	l := &signalLaunch{done: make(chan struct{}), records: records, tmp: tmp, output: filepath.Join(bin, "launcher.out"), env: env, hostDefaults: hostDefaults}
 	switch {
@@ -424,8 +430,10 @@ func startSignalLaunchWith(t *testing.T, public string, options signalLaunchOpti
 			data, e := os.ReadFile(filepath.Join(records, "launch.json"))
 			return e == nil && json.Unmarshal(data, &l.launch) == nil
 		})
-		check(t, strings.HasPrefix(l.launch.Directory, tmp+string(filepath.Separator)+"sessionbus-qwen-launch-"), "launch directory %q is not the launcher's private temporary directory", l.launch.Directory)
-		check(t, l.launch.DefaultsPath == filepath.Join(l.launch.Directory, "system-defaults.json"), "native defaults path %q", l.launch.DefaultsPath)
+		if options.args == nil {
+			check(t, strings.HasPrefix(l.launch.Directory, tmp+string(filepath.Separator)+"sessionbus-qwen-launch-"), "launch directory %q is not the launcher's private temporary directory", l.launch.Directory)
+			check(t, l.launch.DefaultsPath == filepath.Join(l.launch.Directory, "system-defaults.json"), "native defaults path %q", l.launch.DefaultsPath)
+		}
 		check(t, l.launch.HangupIgnored == options.ignoreHangup, "native inherited SIGHUP ignored=%v, want %v", l.launch.HangupIgnored, options.ignoreHangup)
 		// Walk up from the TUI to the launcher: one level, or three for the chain.
 		l.chain = []nativeProcessIdentity{mustInspect(t, l.launch.PID)}
@@ -615,6 +623,88 @@ func exercisePackagedInteractiveSignals(t *testing.T, public string) {
 		code, killed := l.wait(t)
 		check(t, code == 37 && killed == 0, "native exit not propagated: code=%d signal=%v", code, killed)
 		l.assertNoResidue(t)
+	})
+	// Native passthrough owns no launch directory and keeps base signal
+	// handling exactly: SIGTERM goes to the direct child only, SIGHUP is not
+	// handled and SIGINT is left to native. Each run goes through installed
+	// Qwen's three-level topology, so delivery to the whole job would show.
+	// The routing shape is written for comparison with base. The
+	// wrapper-handled --version never reaches native.
+	t.Run("passthrough-signal-routing-unchanged", func(t *testing.T) {
+		type routing struct {
+			Args, NativeArgs     []string
+			Signal, Launcher     string
+			NativeReceipts       []string
+			AliveAfterLauncher   []string
+			EnvAdded, EnvRemoved []string
+		}
+		keys := func(entries []string) []string {
+			names := []string{}
+			for _, entry := range entries {
+				name, _, _ := strings.Cut(entry, "=")
+				names = append(names, name)
+			}
+			slices.Sort(names)
+			return names
+		}
+		roles := []string{"bootstrap", "supervisor", "native"}
+		shape := []routing{}
+		for _, args := range [][]string{{"mcp", "list"}, {"--native-version"}, {"-n", "chosen", "mcp", "list"}} {
+			for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT} {
+				l := startSignalLaunchWith(t, public, signalLaunchOptions{mode: "exit", chain: true, hold: sig != syscall.SIGINT, args: args})
+				must(t, syscall.Kill(l.launcher, sig))
+				if sig == syscall.SIGINT {
+					l.assertStillRunning(t)
+					must(t, l.input.Close())
+				}
+				code, killed := l.wait(t)
+				launcher := fmt.Sprintf("exit %d", code)
+				if killed != 0 {
+					launcher = "killed by " + killed.String()
+				}
+				time.Sleep(300 * time.Millisecond)
+				alive, receipts := []string{}, []string{}
+				for i, p := range l.chain {
+					if len(l.alive(p)) == 1 {
+						alive = append(alive, roles[i])
+					}
+				}
+				for _, receipt := range l.receipts(t) {
+					receipts = append(receipts, receipt.Signal)
+				}
+				added, removed := environmentDelta(l.env, l.launch.Env, strings.NewReplacer())
+				shape = append(shape, routing{Args: args, NativeArgs: l.launch.Args, Signal: sig.String(), Launcher: launcher, NativeReceipts: receipts, AliveAfterLauncher: alive, EnvAdded: keys(added), EnvRemoved: keys(removed)})
+				must(t, os.WriteFile(filepath.Join(l.records, "release"), nil, 0600))
+				for deadline := time.Now().Add(5 * time.Second); len(l.alive(l.chain...)) != 0; time.Sleep(10 * time.Millisecond) {
+					check(t, time.Now().Before(deadline), "released passthrough chain %v did not exit", l.alive(l.chain...))
+				}
+			}
+		}
+		bin := t.TempDir()
+		must(t, os.WriteFile(filepath.Join(bin, "qwen"), []byte("#!/bin/sh\n: > \"$0.ran\"\n"), 0700))
+		version := exec.Command(public, "--version")
+		version.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+		output, e := version.CombinedOutput()
+		_, ran := os.Stat(filepath.Join(bin, "qwen.ran"))
+		reported := strings.HasPrefix(string(output), "qwen-peer ") && strings.Count(string(output), "\n") == 1
+		shape = append(shape, routing{Args: []string{"--version"}, Launcher: fmt.Sprintf("exit %v, version report %v, native started %v", e, reported, ran == nil)})
+		writeDifferentialShape(t, "passthrough-signals.json", shape)
+		for _, r := range shape[:len(shape)-1] {
+			want := map[string]routing{
+				syscall.SIGTERM.String(): {Launcher: "exit 1", NativeReceipts: []string{}, AliveAfterLauncher: []string{"supervisor", "native"}},
+				syscall.SIGHUP.String():  {Launcher: "killed by hangup", NativeReceipts: []string{}, AliveAfterLauncher: []string{"bootstrap", "supervisor", "native"}},
+				syscall.SIGINT.String():  {Launcher: "exit 37", NativeReceipts: []string{}, AliveAfterLauncher: []string{}},
+			}[r.Signal]
+			nativeArgs := r.Args
+			if r.Args[0] == "--native-version" {
+				nativeArgs = []string{"--version"}
+			} else if r.Args[0] == "-n" {
+				nativeArgs = r.Args[2:]
+			}
+			check(t, r.Launcher == want.Launcher && reflect.DeepEqual(r.NativeReceipts, want.NativeReceipts) && reflect.DeepEqual(r.AliveAfterLauncher, want.AliveAfterLauncher) && reflect.DeepEqual(r.NativeArgs, nativeArgs),
+				"passthrough %v %s: launcher %q, native receipts %v, alive after the launcher %v, native args %v; want base %q, %v, %v, %v", r.Args, r.Signal, r.Launcher, r.NativeReceipts, r.AliveAfterLauncher, r.NativeArgs, want.Launcher, want.NativeReceipts, want.AliveAfterLauncher, nativeArgs)
+		}
+		check(t, e == nil && reported && ran != nil, "--version: %v %q, native started %v", e, output, ran == nil)
 	})
 	for _, tc := range []struct {
 		name, mode string

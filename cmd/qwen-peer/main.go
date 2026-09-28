@@ -25,7 +25,7 @@ func main() {
 		return
 	}
 	basename := filepath.Base(os.Args[0])
-	signals, notify := entrySignals(basename, host.LaneMode(), signal.Ignored(syscall.SIGHUP))
+	signals, notify := entrySignals(basename, host.LaneMode(), integratedLaunch(basename, arguments), signal.Ignored(syscall.SIGHUP))
 	if basename != qwen.PrivateAlias && !host.LaneMode() {
 		// Native TUI and launcher share the foreground process group. Native
 		// receives terminal SIGINT itself; do not turn that into a TERM or a
@@ -50,15 +50,30 @@ func main() {
 	}
 }
 
+// integratedLaunch reports whether this invocation is an integrated
+// interactive launch, the only entry that owns a launch directory and a native
+// job. Native passthrough, and arguments the launch plan rejects, are not.
+func integratedLaunch(basename string, arguments []string) bool {
+	if basename == qwen.PrivateAlias || host.LaneMode() {
+		return false
+	}
+	plan, err := qwen.InteractivePlan(arguments, os.Environ())
+	return err == nil && qwen.IntegratedLaunch(plan)
+}
+
 // entrySignals returns the signals that end this entry and how they arrive.
-// Lane workers and the private MCP entry keep SIGINT and SIGTERM. The
-// interactive launcher owns SIGTERM and SIGHUP: it forwards either to native,
-// then removes its private launch directory. Notify would un-ignore an
-// inherited SIG_IGN (nohup) for launcher and native alike, so an ignored
-// SIGHUP stays ignored.
-func entrySignals(basename string, lane, hangupIgnored bool) ([]os.Signal, func(context.Context, ...os.Signal) (context.Context, context.CancelFunc)) {
+// Lane workers and the private MCP entry keep SIGINT and SIGTERM. Native
+// passthrough, which owns no launch directory, keeps base handling: SIGTERM,
+// forwarded to the direct child only. The integrated interactive launcher
+// owns SIGTERM and SIGHUP: it ends its native job with either, then removes
+// its private launch directory. Notify would un-ignore an inherited SIG_IGN
+// (nohup) for launcher and native alike, so an ignored SIGHUP stays ignored.
+func entrySignals(basename string, lane, integrated, hangupIgnored bool) ([]os.Signal, func(context.Context, ...os.Signal) (context.Context, context.CancelFunc)) {
 	if basename == qwen.PrivateAlias || lane {
 		return []os.Signal{os.Interrupt, syscall.SIGTERM}, signal.NotifyContext
+	}
+	if !integrated {
+		return []os.Signal{syscall.SIGTERM}, signal.NotifyContext
 	}
 	if hangupIgnored {
 		return []os.Signal{syscall.SIGTERM}, qwen.NotifyInteractive
