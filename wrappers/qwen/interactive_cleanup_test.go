@@ -373,7 +373,22 @@ func TestNativeJobScope(t *testing.T) {
 		}
 	}
 	directIdentity := mustInspect(t, direct.Process.Pid)
+	fixtures := []nativeProcessIdentity{mustInspect(t, pids["member"]), mustInspect(t, pids["session"])}
 	orphan := mustInspect(t, pids["orphan"])
+	fixtures = append(fixtures, orphan)
+	// Registered last, so it runs first: release the fixtures and wait until
+	// they have exited, so no orphan of this test outlives it.
+	t.Cleanup(func() {
+		_ = os.WriteFile(filepath.Join(records, "release"), nil, 0600)
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if len(aliveIdentities(fixtures)) == 0 {
+				return
+			}
+		}
+		for _, p := range fixtures {
+			signalNativeTestProcess(p, syscall.SIGKILL)
+		}
+	})
 	check(t, orphan.parent != direct.Process.Pid, "orphan %d is still in the launcher's tree", pids["orphan"])
 	owned, _, err := nativeJob(directIdentity)
 	must(t, err)
@@ -467,6 +482,9 @@ func TestSignalNativeJobNeverSignalsAnotherProcess(t *testing.T) {
 // The drain is bounded and reports what is still running; an exited member
 // is confirmed gone and the job is then proven ended.
 func TestNativeJobSettleIsBounded(t *testing.T) {
+	// Listings come from a controlled table: the real one could hold unrelated
+	// processes this test does not own.
+	replaceNativeProcesses(t, nil)
 	child := exec.Command("sleep", "30")
 	must(t, child.Start())
 	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
@@ -480,6 +498,17 @@ func TestNativeJobSettleIsBounded(t *testing.T) {
 	_ = child.Wait()
 	job.settle(time.Now().Add(time.Minute))
 	check(t, job.ended && len(job.members) == 0, "an exited member kept the job: %+v", job)
+}
+
+// aliveIdentities returns the processes that are still the same process.
+func aliveIdentities(processes []nativeProcessIdentity) []int {
+	alive := []int{}
+	for _, p := range processes {
+		if current, e := inspectNativeProcess(p.pid); e == nil && current.start == p.start {
+			alive = append(alive, p.pid)
+		}
+	}
+	return alive
 }
 
 // replaceNativeProcesses serves the given tables, each with this process's
