@@ -61,7 +61,10 @@ func IntegratedLaunch(plan host.ExecPlan) bool {
 // never listed. Processes that left the group (setsid, setpgid) and everything
 // outside this launcher's tree are excluded. Where orphans are not adopted
 // (macOS), same-group processes reparented to PID 1 that started after the
-// direct child are returned as wait-only.
+// direct child are returned as wait-only. If the direct child's start could
+// not be read, the launcher's own start is the bound: the direct child cannot
+// have started earlier, so more processes are awaited, never fewer, and none
+// of them is signalled.
 //
 // A listing that cannot show the whole job returns the members it did find
 // with an error: the table was incomplete, it omits the launcher itself, or a
@@ -95,8 +98,12 @@ func nativeJob(direct nativeProcessIdentity) (owned, waitOnly []nativeProcessIde
 			}
 		}
 	}
-	if !nativeOrphansAdopted.Load() && direct.start != "" {
-		waitOnly = launchdOrphans(children, seen, group, nativeProcessStarted(direct.start))
+	if !nativeOrphansAdopted.Load() {
+		after := self.started
+		if direct.start != "" {
+			after = nativeProcessStarted(direct.start)
+		}
+		waitOnly = launchdOrphans(children, seen, group, after)
 	}
 	if err == nil {
 		err = unreadAncestry(rows, seen, group, self.started)

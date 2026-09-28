@@ -580,6 +580,34 @@ func TestNativeJobTraversesZombies(t *testing.T) {
 	check(t, err == nil && len(owned) == 1 && owned[0] == tui.nativeProcessIdentity, "listing %v (%v), want the TUI under the zombie bootstrap", owned, err)
 }
 
+// Without a child subreaper (macOS), a direct child whose start could not be
+// read (root reviewer's r3 case) must not switch the launchd-orphan wait off:
+// the launcher's own start bounds it instead. Its live same-group orphans are
+// awaited, never signalled, so two complete listings cannot prove the job
+// ended while they run; an orphan older than the launcher is not awaited.
+func TestNativeJobUnknownDirectStartStillAwaitsOrphans(t *testing.T) {
+	adopted := nativeOrphansAdopted.Load()
+	t.Cleanup(func() { nativeOrphansAdopted.Store(adopted) })
+	nativeOrphansAdopted.Store(false)
+	orphan := func(pid, parent int, started uint64) nativeProcessEntry {
+		return nativeProcessEntry{nativeProcessIdentity: nativeProcessIdentity{pid: pid, parent: parent, start: fmt.Sprint("boot:", started)}, group: syscall.Getpgrp(), started: started, live: true}
+	}
+	initProcess := nativeProcessEntry{nativeProcessIdentity: nativeProcessIdentity{pid: 1, start: "boot:1"}, group: 1, started: 1, live: true}
+	supervisor := orphan(1<<29+1, 1, 201)
+	tui := orphan(1<<29+2, supervisor.pid, 202)
+	older := orphan(1<<29+3, 1, 99)
+	replaceNativeProcesses(t, []nativeProcessEntry{initProcess, supervisor, tui, older})
+	direct := nativeProcessIdentity{pid: 1 << 29}
+	owned, waitOnly, err := nativeJob(direct)
+	pids := []int{}
+	for _, p := range waitOnly {
+		pids = append(pids, p.pid)
+	}
+	check(t, err == nil && len(owned) == 0 && reflect.DeepEqual(pids, []int{supervisor.pid, tui.pid}), "listing owned %v, wait-only %v (%v), want the supervisor and TUI awaited, never owned", owned, pids, err)
+	job := &nativeJobWatch{direct: direct}
+	check(t, !job.prove() && len(job.members) == 2, "an unknown direct-child start proved the job ended with live orphans: %+v", job)
+}
+
 // failNativeProcesses makes listings fail until *failing is false.
 func failNativeProcesses(t *testing.T) *atomic.Bool {
 	t.Helper()
