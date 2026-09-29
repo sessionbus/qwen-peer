@@ -71,7 +71,12 @@ and [preservation inventory](docs/migration/PRESERVED-FILES.json) track separati
 Historical behavior and limits remain in [Qwen facts](docs/products/qwen.md)
 and the [Qwen design and acceptance records](docs/designs/qwen-0.5.0/ACCEPTANCE.md).
 The held lane skill remains documentation only and is not packaged or activated.
-Fresh extracted-build validation remains pending.
+Field-free installed validation ran on the permanent development host
+(Sessionbus daemon build c9792c31, the v0.5.9 runtime) with qwen-peer 580f1548,
+which has the same runtime as this release: 36 checks passed. Recovery after a
+helper loss (I1.7, a native 0.24.6 limitation, not re-run) and live default-mode
+permission cancellation (not observed) remain as documented in the v0.5.9
+release notes. This is scoped evidence, not blanket acceptance.
 
 ## Version reporting
 
