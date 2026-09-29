@@ -135,7 +135,7 @@ func newLaneFixture(t *testing.T, heldReport bool) *laneFixture {
 		<-readerDone
 	})
 	<-hello
-	f.send(t, "session.open", kit.OpenRequest{Name: "lane@local", Groups: []string{}, Policy: &kit.LanePolicy{IdleMessage: "run"}})
+	f.send(t, "session.open", kit.OpenRequest{Name: "lane@local", Groups: []string{}, Policy: &kit.LanePolicy{}})
 	if frame := f.response(t); frame.Error != nil {
 		t.Fatal(frame.Error)
 	}
