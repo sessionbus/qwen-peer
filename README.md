@@ -12,14 +12,12 @@ Install native Qwen and Sessionbus first using your normal home, login and PATH.
 curl -fsSL https://raw.githubusercontent.com/sessionbus/qwen-peer/main/scripts/install-qwen.sh | sh
 ```
 
-This repository is being separated from the original peers tree. No independent
-release is published yet; use a reviewed archive built from source until release.
-The installer retains checksum verification, archive-role checks and latest
-stable/development selection against this repository; until a release exists it
-stops without installing and never fetches another product. Older published
-installer links remain compatibility entrypoints in
-[the original repository](https://github.com/sessionbus/codex-peer), pinned to the
-final combined v0.5.3 assets.
+Stable releases are published from signed `vX.Y.Z` tags; see
+[docs/releases](docs/releases). The installer installs the latest stable release
+by default (set `SESSIONBUS_VERSION` to pin one), verifies checksums and the
+archive role, and does not fetch another product. v0.5.9 and later require
+Sessionbus v0.5.9. Installers from the earlier combined peers repository are not
+used for these releases.
 
 See [the Qwen guide](qwen/README.md) for the permanent install/update procedure,
 the private `qwen-peer-mcp` alias, native flags, the managed tool grant, resume,
@@ -61,9 +59,10 @@ scripts/package-product qwen ./dist
 ```
 
 Builds require Go 1.24 or newer; target installations do not need Go. Packaging
-supports Linux/macOS amd64/arm64. This extraction does not bump RELEASE_VERSION
-or the Qwen extension manifest's independent `0.4.0` identity. Publication
-remains held during validation. Shared support uses the exact peer-common
+supports Linux/macOS amd64/arm64. RELEASE_VERSION agrees with the stable tag; the
+Qwen extension manifest keeps its independent `0.4.0` identity. Stable releases
+are published from signed `vX.Y.Z` tags; see [docs/releases](docs/releases).
+Shared support uses the exact peer-common
 version/checksum in go.mod/go.sum. Native Qwen versions are not pinned: observed
 versions and hashes identify test evidence, not a runtime allowlist.
 
@@ -72,7 +71,12 @@ and [preservation inventory](docs/migration/PRESERVED-FILES.json) track separati
 Historical behavior and limits remain in [Qwen facts](docs/products/qwen.md)
 and the [Qwen design and acceptance records](docs/designs/qwen-0.5.0/ACCEPTANCE.md).
 The held lane skill remains documentation only and is not packaged or activated.
-Fresh extracted-build validation remains pending.
+Field-free installed validation ran on the permanent development host
+(Sessionbus daemon build c9792c31, the v0.5.9 runtime) with qwen-peer 580f1548,
+which has the same runtime as this release: 36 checks passed. Recovery after a
+helper loss (I1.7, a native 0.24.6 limitation, not re-run) and live default-mode
+permission cancellation (not observed) remain as documented in the v0.5.9
+release notes. This is scoped evidence, not blanket acceptance.
 
 ## Version reporting
 
