@@ -13,7 +13,12 @@ func inspectNativeProcess(pid int) (nativeProcessIdentity, error) {
 	if err != nil {
 		return p, err
 	}
-	if int(info.Proc.P_pid) != pid || info.Proc.P_stat == 5 {
+	// Only the zombie state is positive evidence that the process ended; a
+	// record for another PID is an ordinary (ambiguous) error.
+	if int(info.Proc.P_pid) != pid {
+		return p, errors.New("native process lookup returned another PID")
+	}
+	if info.Proc.P_stat == 5 {
 		return p, errNativeNotLive
 	}
 	p.parent = int(info.Eproc.Ppid)
