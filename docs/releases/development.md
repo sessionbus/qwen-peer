@@ -20,6 +20,7 @@ This development/beta build publishes all eight peer archives for Linux and macO
 - OMP graceful shutdown drains its owned native RPC output and report work before the owner finishes. Startup requests wait until the registry owns the native bridge; cancellation releases and joins the wait.
 - Installers select latest stable, falling back to the published development prerelease only while no stable release exists. Explicit versions and mirrors remain supported; checksums are verified before installation.
 - Pi and OMP include managed native identity, interactive launch, lane Run, staged delivery, and joined process/private bridge ownership.
+- Qwen interactive messages are appended to a launch-private native `--input-file` instead of the native peer inbox, so an idle session wakes and an active task takes the message at its next eligible boundary. Integrated launches no longer need a native controller grant. The input file is removed by a later managed launch after the recorded native TUI has ended.
 
 ## Preview status
 

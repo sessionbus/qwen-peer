@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
 	"github.com/sessionbus/peer-common/host"
 	"github.com/sessionbus/peer-common/mcp"
+	"golang.org/x/sys/unix"
 )
 
 const InteractiveEnv = "SESSIONBUS_QWEN_INTERACTIVE"
@@ -30,6 +32,7 @@ type interactiveLaunch struct {
 	Socket string   `json:"socket"`
 	Groups []string `json:"groups"`
 	Name   string   `json:"name"`
+	Input  string   `json:"input"`
 }
 
 type interactiveOwner struct {
@@ -40,7 +43,6 @@ type interactiveOwner struct {
 	parent      nativeProcessIdentity
 	home, id    string
 	cwd         string
-	token       string
 	conn        *kit.Connection
 	caller      *kit.Caller
 	ready, done chan struct{}
@@ -62,7 +64,7 @@ type interactiveOwner struct {
 func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*interactiveOwner, error) {
 	var launch interactiveLaunch
 	raw := environmentValue(env, InteractiveEnv)
-	if len(raw) > maxInteractiveMCPConfig || json.Unmarshal([]byte(raw), &launch) != nil || launch.PID <= 1 || launch.Start == "" || !filepath.IsAbs(launch.Socket) {
+	if len(raw) > maxInteractiveMCPConfig || json.Unmarshal([]byte(raw), &launch) != nil || launch.PID <= 1 || launch.Start == "" || !filepath.IsAbs(launch.Socket) || !validInteractiveInput(launch.Input) {
 		return nil, errors.New("Qwen managed launch binding is missing or invalid")
 	}
 	if launch.Name != "" {
@@ -76,13 +78,12 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 	if !qwenSessionID.MatchString(id) {
 		return nil, errors.New("native QWEN_CODE_SESSION_ID is missing or invalid")
 	}
-	if !validControllerToken(environmentValue(env, ControllerTokenEnv)) {
-		return nil, errors.New("Qwen Sessionbus controller grant is missing or invalid")
-	}
 	parent, err := bindNativeParent(parentPID, launch.PID, launch.Start)
 	if err != nil {
 		return nil, err
 	}
+	// Best effort: an absent marker only keeps this launch directory in place.
+	_ = writeInteractiveMarker(launch.Input, parent)
 	home := environmentValue(env, "QWEN_HOME")
 	if home == "" {
 		user, e := os.UserHomeDir()
@@ -100,7 +101,7 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 		return nil, err
 	}
 	lifetime, cancel := context.WithCancel(ctx)
-	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, cwd: cwd, token: environmentValue(env, ControllerTokenEnv), ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}, 32), writeGate: make(chan struct{}, 1)}
+	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, cwd: cwd, ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}, 32), writeGate: make(chan struct{}, 1)}
 	b.changed = make(chan struct{}, 1)
 	b.dial = (&net.Dialer{}).DialContext
 	b.retry = func(ctx context.Context) bool {
@@ -203,10 +204,12 @@ func (b *interactiveOwner) observe() error {
 		if !published && row != nil && row.CWD != b.cwd {
 			return errors.New("native registry CWD differs from the native MCP helper CWD")
 		}
-		if published && (row == nil || row.IPCPath == "") {
-			return errors.New("native Qwen inbox became unavailable")
+		// Native registers every interactive session at startup; ipcPath is
+		// only its optional peer inbox, which this integration does not use.
+		if published && row == nil {
+			return errors.New("native Qwen session registration ended")
 		}
-		if row != nil && row.IPCPath != "" {
+		if row != nil {
 			name := row.Name
 			if b.launch.Name != "" {
 				name = b.launch.Name
@@ -226,7 +229,7 @@ func (b *interactiveOwner) observe() error {
 			return b.ctx.Err()
 		case <-startup.C:
 			if !published {
-				return errors.New("native Qwen inbox did not become available; check peer inbox settings and the controller grant")
+				return errors.New("native Qwen session registration did not appear")
 			}
 		case <-watch.changed:
 		}
@@ -439,10 +442,10 @@ func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit
 			}
 			body, e := host.RenderNativeMessage(*request)
 			if e == nil {
-				e = b.deliverNative(ctx, body)
+				e = b.appendInput(ctx, body)
 			}
 			if e != nil {
-				err = c.Error(r, -32603, "native inbox write failed; no replay")
+				err = c.Error(r, -32603, "native input write failed; no replay")
 			} else {
 				err = c.Result(r, kit.DeliveryReceipt{Disposition: "written"})
 			}
@@ -460,9 +463,21 @@ func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit
 	}
 }
 
-// A written receipt covers only the bounded local socket write. Native policy
-// may still hold, refuse, or drop the frame; no uncertain write is replayed.
-func (b *interactiveOwner) deliverNative(ctx context.Context, text string) error {
+// A written receipt covers only the complete append of one record to the
+// launch input file. Native polls that file and queues the text as ordinary
+// input; it may still hold or drop it, and no uncertain append is replayed.
+// The leading newline ends any partial record a failed earlier write left, so
+// native reads that tail as its own invalid line and this record stands alone.
+func (b *interactiveOwner) appendInput(ctx context.Context, text string) error {
+	body, err := json.Marshal(map[string]string{"type": "submit", "text": text})
+	if err != nil {
+		return err
+	}
+	if len(body) > maxInteractiveRecord {
+		return errors.New("native input record exceeds 8 MiB")
+	}
+	record := make([]byte, 0, len(body)+2)
+	record = append(append(append(record, '\n'), body...), '\n')
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -471,78 +486,34 @@ func (b *interactiveOwner) deliverNative(ctx context.Context, text string) error
 	case <-b.writeGate:
 	}
 	defer func() { b.writeGate <- struct{}{} }()
-	if err := ctx.Err(); err != nil {
+	if err = ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.ctx.Err(); err != nil {
+	if err = b.ctx.Err(); err != nil {
 		return err
 	}
-	row, err := readNativeRegistry(b.home, b.parent, b.id)
+	f, err := os.OpenFile(b.launch.Input, os.O_WRONLY|os.O_APPEND|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return err
 	}
-	if row == nil || row.IPCPath == "" {
-		return errors.New("native Qwen inbox is unavailable")
+	info, e := f.Stat()
+	if e != nil || !info.Mode().IsRegular() {
+		return errors.Join(errors.New("native input is not a regular launch file"), e, f.Close())
 	}
-	id, err := sessionID("")
-	if err != nil {
-		return err
+	n, e := writeInputRecord(f, record)
+	if e == nil && n != len(record) {
+		e = io.ErrShortWrite
 	}
-	auth, err := json.Marshal(map[string]any{"msgV": 1, "type": "auth", "token": b.token})
-	if err != nil {
-		return err
-	}
-	frame, err := nativeInboxUserLine(id, b.id, text)
-	if err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := b.ctx.Err(); err != nil {
-		return err
-	}
-	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	stop := context.AfterFunc(b.ctx, cancel)
-	defer stop()
-	conn, err := (&net.Dialer{}).DialContext(writeCtx, "unix", row.IPCPath)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if deadline, ok := writeCtx.Deadline(); ok {
-		_ = conn.SetWriteDeadline(deadline)
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := b.ctx.Err(); err != nil {
-		return err
-	}
-	wire := string(auth) + "\n" + string(frame)
-	n, err := io.WriteString(conn, wire)
-	if err == nil && n != len(wire) {
-		err = io.ErrShortWrite
-	}
-	return err
+	return errors.Join(e, f.Close())
 }
 
-func nativeInboxUserLine(id, sessionID, text string) ([]byte, error) {
-	frame, err := json.Marshal(map[string]any{
-		"msgV": 1, "msgId": id, "type": "user", "toSessionId": sessionID,
-		"priority": "next", "message": map[string]string{"role": "user", "content": text},
-	})
-	if err != nil {
-		return nil, err
-	}
-	// Qwen 0.24.3 limits each decoded NDJSON line to 1 MiB in JS UTF-16
-	// units. A byte bound on the final JSON is deliberately conservative for
-	// non-ASCII input and also covers JSON escaping before any socket write.
-	if len(frame) > 1<<20 {
-		return nil, errors.New("encoded native inbox frame exceeds 1 MiB")
-	}
-	return append(frame, '\n'), nil
+// One write call per record; replaced only by tests to force a short write.
+var writeInputRecord = func(f *os.File, record []byte) (int, error) { return f.Write(record) }
+
+const maxInteractiveRecord = 8 << 20
+
+func validInteractiveInput(path string) bool {
+	return filepath.IsAbs(path) && filepath.Clean(path) == path && filepath.Base(path) == interactiveInputName && strings.HasPrefix(filepath.Base(filepath.Dir(path)), interactiveInputPrefix)
 }
 
 // Native inherited stdio has the same poller limitation as the lane forwarder.
@@ -593,13 +564,4 @@ func serveInteractiveOwner(ctx context.Context, b *interactiveOwner, input io.Re
 		return errors.Join(err, b.err)
 	}
 	return err
-}
-
-func interactiveBinding(socket, name string, groups []string) (string, error) {
-	p, err := inspectNativeProcess(os.Getpid())
-	if err != nil {
-		return "", err
-	}
-	data, err := json.Marshal(interactiveLaunch{PID: p.pid, Start: p.start, Socket: socket, Name: name, Groups: groups})
-	return string(data), err
 }

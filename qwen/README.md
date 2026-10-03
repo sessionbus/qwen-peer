@@ -85,26 +85,30 @@ invokable Skill. Ordinary `qwen` does not start this package's MCP helper.
 helper, and grants only `mcp__sessionbus__sessionbus`. Existing caller MCP
 configuration remains in its original argv position; its files are not edited.
 
-Before an integrated launch, the user must create a Qwen native external
-controller grant (`qwen sessions controllers add`) and supply its secret as
-`SESSIONBUS_QWEN_CONTROLLER_TOKEN` in the real login environment. The wrapper
-neither mints nor stores a grant. A missing or malformed token is a setup error;
-there is no fallback to the session's published `ipcToken`. The token is passed
-in the native and helper process environment, which is visible to software
-with process-environment access under the same user. Protect it like any other
-process credential. Native disabled, hold and refuse policy remains effective.
-
-The outer wrapper resolves native `qwen`, composes the helper config, then
-replaces itself with native Qwen using `exec`. It creates no input file, event
-FIFO, scoped defaults file, owner claim, launch directory or resident parent.
+The outer wrapper resolves native `qwen`, creates a private launch directory
+(mode 0700) with an empty input file (mode 0600) under `$XDG_RUNTIME_DIR`, or
+the system temporary directory when that is unset, composes the helper config,
+passes `--input-file` to native, then replaces itself with native Qwen using
+`exec`. It creates no event FIFO, scoped defaults file, owner claim or resident
+parent, and needs no native controller grant.
 The helper binds the exact native `QWEN_CODE_SESSION_ID` to the live parent PID
-registry row, process generation, namespace where available, and CWD. It reads
-that row's `ipcPath` and writes an authenticated native inbox user frame with
-`priority:next`. A Sessionbus `written` receipt means the bounded local socket
-write completed, not that native Qwen admitted the frame or ran a model turn.
-Native inbox policy may hold, refuse or drop it. Uncertain writes are not
-replayed. Registry and native-parent loss withdraw the helper. Daemon loss
-reconnects the same helper and identity; supersession is terminal.
+registry row, process generation, namespace where available, and CWD; the row's
+optional peer-inbox address is not used. It delivers each Sessionbus message by
+appending one `{"type":"submit","text":...}` record to the input file, which
+native watches: an idle session takes it as new input, and an active task takes
+it at its next eligible boundary. A Sessionbus `written` receipt means the
+complete record was appended, not that native queued it or ran a model turn.
+Uncertain appends are not replayed, and a partially written record cannot
+corrupt a later one. Registry and native-parent loss withdraw the helper.
+Daemon loss reconnects the same helper and identity; supersession is terminal.
+
+The helper exits as soon as native closes its connection; native waits for that
+during quit. Each helper records the native TUI it is bound to in the launch
+directory. A later managed launch removes a launch directory once that recorded
+TUI has ended. A directory whose helper never bound, or whose recorded identity
+cannot be read, is left in place. Until it is removed, the input file keeps the
+delivered message text; whether the runtime directory is cleared at logout
+depends on the host.
 
 `-g`/`--group` and `-n`/`--name`/`--peer-name` are wrapper options before `--`.
 For `-n`, the wrapper supplies a single native interactive `/rename -- NAME`
@@ -118,14 +122,16 @@ Without `-n`, caller native arguments and the `--` boundary are preserved, and
 the Sessionbus display follows the observed native registry name.
 Native selectors, permission choices and chat-recording choices remain native.
 Integrated `--no-chat-recording` is supported. Native subcommands and
-help/version pass through without integration or controller-token exposure.
-Integrated launches refuse native `--bare` mode or a truthy
-`QWEN_CODE_SIMPLE`, because bare mode does not load the peer inbox. Ordinary
-native subcommand passthrough retains its own bare-mode behavior.
+help/version pass through without integration.
+Integrated launches refuse native `--bare` mode and a truthy `QWEN_CODE_SIMPLE`,
+which are not supported integrated configurations; the experimental OpenTUI
+renderer (`QWEN_TUI_RENDERER=opentui`), which does not read the input file; and
+a caller `--input-file`, which the wrapper owns. Ordinary native subcommand
+passthrough retains its own bare-mode behavior.
 
 Native `/new`, `/clear` and `/resume` can change the displayed session while
 the helper remains bound to the initial ID. Exit and start a new `qwen-peer`
 process for a different session. ACP lanes keep their separate per-session
-binding. The native Qwen 0.24.3 inbox is the source-supported idle and
-busy-next-turn wake mechanism; real installed model observations remain a
-separate acceptance check.
+binding. Native Qwen 0.24.6's `--input-file` watcher is the source-supported
+idle-wake and active-task delivery mechanism; real installed model
+observations remain a separate acceptance check.

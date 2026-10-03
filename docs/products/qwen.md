@@ -20,10 +20,10 @@
 > Historical evidence below is
 > retained as evidence of its cited versions, not the current implementation.
 
-> Local native-inbox source successor (not yet merged or installed): the
+> Local input-file source successor (not yet merged or installed): the
 > [package README](../../qwen/README.md) describes its static extension context,
-> explicit controller grant, exec launch and native inbox. The installed
-> acceptance records below refer to their original builds and remain unchanged.
+> exec launch and launch-private input file. The installed acceptance records
+> below refer to their original builds and remain unchanged.
 
 > Mandatory-wake update (2026-09-21): the 0.24.1 ACP lane no longer uses its
 > mid-turn drain as a delivery admission path. Native never calls

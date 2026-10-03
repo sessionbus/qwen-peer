@@ -10,7 +10,7 @@ import (
 func TestInteractivePlanDoesNotConsumeGroupAfterBooleanOrOptionalValue(t *testing.T) {
 	for _, option := range []string{"--chat-recording", "--worktree"} {
 		t.Run(option, func(t *testing.T) {
-			plan, err := InteractivePlan([]string{option, "-g", "team"}, []string{ControllerTokenEnv + "=" + fixtureControllerToken})
+			plan, err := InteractivePlan([]string{option, "-g", "team"}, nil)
 			must(t, err)
 			check(t, slicesContain(plan.Args, option), "native option missing: %#v", plan.Args)
 			check(t, !slicesContain(plan.Args, "-g") && environmentValue(plan.Env, host.GroupsEnv) == `["team"]`, "group projection = %#v / %#v", plan.Args, plan.Env)
