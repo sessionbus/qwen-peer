@@ -508,8 +508,27 @@ func (b *interactiveOwner) appendInput(ctx context.Context, text string) error {
 	return errors.Join(e, f.Close())
 }
 
-// One write call per record; replaced only by tests to force a short write.
-var writeInputRecord = func(f *os.File, record []byte) (int, error) { return f.Write(record) }
+// Exactly one write(2) per record. os.File.Write would retry a positive short
+// write with a further write, so the raw descriptor is used instead: a short
+// or interrupted write is returned as is and never continued. Replaced only by
+// tests to force a short write.
+var writeInputRecord = func(f *os.File, record []byte) (int, error) {
+	conn, err := f.SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	n, werr := 0, error(nil)
+	if err = conn.Write(func(fd uintptr) bool {
+		n, werr = unix.Write(int(fd), record)
+		return true
+	}); err != nil {
+		return n, err
+	}
+	if n < 0 {
+		n = 0
+	}
+	return n, werr
+}
 
 const maxInteractiveRecord = 8 << 20
 

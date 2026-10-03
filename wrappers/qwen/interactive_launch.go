@@ -316,8 +316,10 @@ func readInteractiveMarker(directory string) (interactiveMarker, bool) {
 
 // The launcher records the supervisor at creation; each helper bind records
 // the supervisor from its verified binding plus its actual TUI parent, so a
-// relaunched TUI's helper names the TUI that now uses the file. A failed write
-// leaves the previous marker (or none), which only keeps the directory.
+// relaunched TUI's helper names the TUI that now uses the file. The previous
+// marker is removed first: a failed or partial write then leaves no marker or
+// an unreadable one, which keeps the directory, never an older valid marker
+// naming a TUI that has since been replaced.
 func writeInteractiveMarker(input string, supervisor nativeProcessIdentity, tui *nativeProcessIdentity) error {
 	marker := map[string]markerIdentity{"supervisor": {PID: supervisor.pid, Start: supervisor.start}}
 	if tui != nil {
@@ -327,7 +329,11 @@ func writeInteractiveMarker(input string, supervisor nativeProcessIdentity, tui 
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(filepath.Dir(input), interactiveMarkerName), data, 0600)
+	path := filepath.Join(filepath.Dir(input), interactiveMarkerName)
+	if err = os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
 }
 
 // A recorded process has definitely ended when its PID no longer exists, it

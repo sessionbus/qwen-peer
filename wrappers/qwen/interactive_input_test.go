@@ -392,7 +392,8 @@ func TestHelperRecordsItsBoundTUIIdentity(t *testing.T) {
 	must(t, err)
 	t.Cleanup(b.End)
 	marker, ok := readInteractiveMarker(directory)
-	if !ok || marker.supervisor != self || marker.tui == nil || *marker.tui != b.parent {
+	same := func(a, b nativeProcessIdentity) bool { return a.pid == b.pid && a.start == b.start }
+	if !ok || !same(marker.supervisor, self) || marker.tui == nil || !same(*marker.tui, b.parent) {
 		t.Fatalf("marker=%+v ok=%v want supervisor %+v tui %+v", marker, ok, self, b.parent)
 	}
 }
