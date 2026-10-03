@@ -296,44 +296,58 @@ func TestInputBindingMustNameALaunchInputFile(t *testing.T) {
 	}
 }
 
+// marker: nil (none), a string (raw bytes), or an interactiveMarker.
 func makeLaunchDirectory(t *testing.T, base, name string, marker any) string {
 	t.Helper()
 	directory := filepath.Join(base, name)
 	must(t, os.Mkdir(directory, 0700))
-	must(t, os.WriteFile(filepath.Join(directory, interactiveInputName), []byte("\n{}\n"), 0600))
+	input := filepath.Join(directory, interactiveInputName)
+	must(t, os.WriteFile(input, []byte("\n{}\n"), 0600))
 	switch m := marker.(type) {
-	case nativeProcessIdentity:
-		must(t, writeInteractiveMarker(filepath.Join(directory, interactiveInputName), m))
+	case interactiveMarker:
+		must(t, writeInteractiveMarker(input, m.supervisor, m.tui))
 	case string:
 		must(t, os.WriteFile(filepath.Join(directory, interactiveMarkerName), []byte(m), 0600))
 	}
 	return directory
 }
 
-// Only a valid marker whose recorded TUI has definitely ended allows removal.
-// A live TUI keeps its input whatever happened to the launcher, and a launch
-// that never reached helper bind (no marker) is kept as residue.
-func TestSweepRemovesOnlyDirectoriesOfEndedBoundTUIs(t *testing.T) {
-	base := t.TempDir()
-	self, err := inspectNativeProcess(os.Getpid())
-	must(t, err)
+func endedProcessIdentity(t *testing.T) nativeProcessIdentity {
+	t.Helper()
 	child := exec.Command("sleep", "30")
 	must(t, child.Start())
-	ended, err := inspectNativeProcess(child.Process.Pid)
+	p, err := inspectNativeProcess(child.Process.Pid)
 	must(t, err)
 	_ = child.Process.Kill()
 	_ = child.Wait()
-	reused := nativeProcessIdentity{pid: self.pid, start: self.start + "-earlier"}
+	return p
+}
 
-	gone := makeLaunchDirectory(t, base, interactiveInputPrefix+"gone", ended)
-	pidReuse := makeLaunchDirectory(t, base, interactiveInputPrefix+"reused", reused)
-	live := makeLaunchDirectory(t, base, interactiveInputPrefix+"live", self)
-	preBind := makeLaunchDirectory(t, base, interactiveInputPrefix+"prebind", nil)
+// Removal needs a marker with both identities recorded and both definitely
+// ended. A live supervisor may relaunch the TUI, a live TUI still reads the
+// file, and a launch that never reached helper bind has no TUI recorded.
+func TestSweepRemovesOnlyDirectoriesOfEndedSessions(t *testing.T) {
+	base := t.TempDir()
+	self, err := inspectNativeProcess(os.Getpid())
+	must(t, err)
+	endedTUI, endedSupervisor := endedProcessIdentity(t), endedProcessIdentity(t)
+	reused := nativeProcessIdentity{pid: self.pid, start: self.start + "-earlier"}
+	both := func(supervisor, tui nativeProcessIdentity) interactiveMarker {
+		return interactiveMarker{supervisor: supervisor, tui: &tui}
+	}
+
+	gone := makeLaunchDirectory(t, base, interactiveInputPrefix+"gone", both(endedSupervisor, endedTUI))
+	pidReuse := makeLaunchDirectory(t, base, interactiveInputPrefix+"reused", both(reused, reused))
+	relaunching := makeLaunchDirectory(t, base, interactiveInputPrefix+"relaunching", both(self, endedTUI))
+	orphanedTUI := makeLaunchDirectory(t, base, interactiveInputPrefix+"orphaned", both(endedSupervisor, self))
+	preBind := makeLaunchDirectory(t, base, interactiveInputPrefix+"prebind", interactiveMarker{supervisor: endedSupervisor})
+	noMarker := makeLaunchDirectory(t, base, interactiveInputPrefix+"nomarker", nil)
 	unreadable := makeLaunchDirectory(t, base, interactiveInputPrefix+"unreadable", "{not json")
-	foreign := makeLaunchDirectory(t, base, "other-gone", ended)
-	unexpected := makeLaunchDirectory(t, base, interactiveInputPrefix+"unexpected", ended)
+	tuiOnly := makeLaunchDirectory(t, base, interactiveInputPrefix+"tuionly", `{"tui":{"pid":1,"start":"x"}}`)
+	foreign := makeLaunchDirectory(t, base, "other-gone", both(endedSupervisor, endedTUI))
+	unexpected := makeLaunchDirectory(t, base, interactiveInputPrefix+"unexpected", both(endedSupervisor, endedTUI))
 	must(t, os.WriteFile(filepath.Join(unexpected, "other"), nil, 0600))
-	target := makeLaunchDirectory(t, t.TempDir(), "target", ended)
+	target := makeLaunchDirectory(t, t.TempDir(), "target", both(endedSupervisor, endedTUI))
 	must(t, os.Symlink(target, filepath.Join(base, interactiveInputPrefix+"link")))
 
 	sweepInteractiveDirectories(base)
@@ -343,7 +357,7 @@ func TestSweepRemovesOnlyDirectoriesOfEndedBoundTUIs(t *testing.T) {
 			t.Fatalf("ended launch directory kept: %s (%v)", removed, err)
 		}
 	}
-	for _, kept := range []string{live, preBind, unreadable, foreign} {
+	for _, kept := range []string{relaunching, orphanedTUI, preBind, noMarker, unreadable, tuiOnly, foreign} {
 		if _, err := os.Lstat(filepath.Join(kept, interactiveInputName)); err != nil {
 			t.Fatalf("sweep removed input of %s: %v", kept, err)
 		}
@@ -359,8 +373,9 @@ func TestSweepRemovesOnlyDirectoriesOfEndedBoundTUIs(t *testing.T) {
 	}
 }
 
-// Each helper bind records its actual native TUI parent, replacing a marker an
-// earlier (for example relaunched) TUI's helper left.
+// Each helper bind records the supervisor from its verified binding and its
+// actual native TUI parent, replacing a marker an earlier (for example
+// relaunched) TUI's helper left.
 func TestHelperRecordsItsBoundTUIIdentity(t *testing.T) {
 	home := t.TempDir()
 	self, err := inspectNativeProcess(os.Getpid())
@@ -369,15 +384,16 @@ func TestHelperRecordsItsBoundTUIIdentity(t *testing.T) {
 	must(t, err)
 	input := filepath.Join(directory, interactiveInputName)
 	must(t, os.WriteFile(input, nil, 0600))
-	must(t, writeInteractiveMarker(input, nativeProcessIdentity{pid: 1, start: "earlier"}))
+	earlier := nativeProcessIdentity{pid: 1, start: "earlier"}
+	must(t, writeInteractiveMarker(input, self, &earlier))
 	binding, err := json.Marshal(interactiveLaunch{PID: self.pid, Start: self.start, Socket: "/tmp/bus.sock", Input: input})
 	must(t, err)
 	b, err := newInteractiveOwner(context.Background(), []string{InteractiveEnv + "=" + string(binding), nativeSessionEnv + "=" + fixtureNativeID, "QWEN_HOME=" + home}, os.Getpid())
 	must(t, err)
 	t.Cleanup(b.End)
-	recorded, ok := readInteractiveMarker(directory)
-	if !ok || recorded.pid != b.parent.pid || recorded.start != b.parent.start {
-		t.Fatalf("marker=%+v ok=%v want %+v", recorded, ok, b.parent)
+	marker, ok := readInteractiveMarker(directory)
+	if !ok || marker.supervisor != self || marker.tui == nil || *marker.tui != b.parent {
+		t.Fatalf("marker=%+v ok=%v want supervisor %+v tui %+v", marker, ok, self, b.parent)
 	}
 }
 

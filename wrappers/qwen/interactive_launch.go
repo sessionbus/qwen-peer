@@ -212,6 +212,9 @@ func prepareInteractiveLaunch(args, env []string) ([]string, string, error) {
 		if err = f.Close(); err != nil {
 			return nil, err
 		}
+		if err = writeInteractiveMarker(input, self, nil); err != nil {
+			return nil, err
+		}
 		binding, err := json.Marshal(interactiveLaunch{PID: self.pid, Start: self.start, Socket: environmentValue(env, host.SocketEnv), Name: environmentValue(env, host.NameEnv), Groups: groups, Input: input})
 		if err != nil {
 			return nil, err
@@ -240,13 +243,16 @@ func interactiveRuntimeDirectory(env []string) string {
 }
 
 // Remove this user's launch directories whose session has definitely ended.
-// With --input-file native supervises the TUI as a relaunchable child, so the
-// launcher is not the TUI. Each bound helper records its actual TUI parent
-// identity in the marker. A directory is removed only when that marker is
-// valid and the recorded TUI has definitely ended; an absent or unreadable
-// marker, or a live or unreadable identity, keeps it. Only own-prefix
-// directories under base are considered, and each is removed non-recursively
-// after its own files, so an unexpected entry keeps the directory in place.
+// With --input-file native supervises the TUI as a child and relaunches it in
+// the same supervisor process (relaunchOnExitCode), so the launcher (after exec
+// the supervisor) is not the TUI. The marker holds the supervisor identity
+// from creation and the actual TUI identity from each helper bind. A directory
+// is removed only when both are recorded and both have definitely ended: a
+// live supervisor may still relaunch a TUI, and a live TUI still reads the
+// file. A marker without a TUI (before helper bind), an unreadable marker, or
+// a live or unreadable identity keeps it. Only own-prefix directories under
+// base are considered, and each is removed non-recursively after its own
+// files, so an unexpected entry keeps the directory in place.
 func sweepInteractiveDirectories(base string) {
 	entries, err := os.ReadDir(base)
 	if err != nil {
@@ -264,56 +270,78 @@ func sweepInteractiveDirectories(base string) {
 			continue
 		}
 		directory := filepath.Join(base, entry.Name())
-		if tui, ok := readInteractiveMarker(directory); ok && interactiveIdentityEnded(tui) {
+		marker, ok := readInteractiveMarker(directory)
+		if ok && marker.tui != nil && interactiveIdentityEnded(*marker.tui) && interactiveIdentityEnded(marker.supervisor) {
 			removeInteractiveDirectory(directory)
 		}
 	}
 }
 
-// The marker holds one bound TUI identity as JSON; anything else is unreadable.
-func readInteractiveMarker(directory string) (nativeProcessIdentity, bool) {
+type interactiveMarker struct {
+	supervisor nativeProcessIdentity
+	tui        *nativeProcessIdentity
+}
+
+type markerIdentity struct {
+	PID   int    `json:"pid"`
+	Start string `json:"start"`
+}
+
+// The marker is JSON with a required supervisor and an optional TUI identity;
+// anything else is unreadable.
+func readInteractiveMarker(directory string) (interactiveMarker, bool) {
 	f, err := os.OpenFile(filepath.Join(directory, interactiveMarkerName), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nativeProcessIdentity{}, false
+		return interactiveMarker{}, false
 	}
 	defer f.Close()
 	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
-		return nativeProcessIdentity{}, false
+		return interactiveMarker{}, false
 	}
 	data, err := io.ReadAll(io.LimitReader(f, 4097))
-	var marker struct {
-		PID   int    `json:"pid"`
-		Start string `json:"start"`
+	var raw struct {
+		Supervisor *markerIdentity `json:"supervisor"`
+		TUI        *markerIdentity `json:"tui"`
 	}
-	if err != nil || len(data) > 4096 || json.Unmarshal(data, &marker) != nil || marker.PID <= 0 || marker.Start == "" {
-		return nativeProcessIdentity{}, false
+	valid := func(m *markerIdentity) bool { return m != nil && m.PID > 0 && m.Start != "" }
+	if err != nil || len(data) > 4096 || json.Unmarshal(data, &raw) != nil || !valid(raw.Supervisor) || raw.TUI != nil && !valid(raw.TUI) {
+		return interactiveMarker{}, false
 	}
-	return nativeProcessIdentity{pid: marker.PID, start: marker.Start}, true
+	marker := interactiveMarker{supervisor: nativeProcessIdentity{pid: raw.Supervisor.PID, start: raw.Supervisor.Start}}
+	if raw.TUI != nil {
+		marker.tui = &nativeProcessIdentity{pid: raw.TUI.PID, start: raw.TUI.Start}
+	}
+	return marker, true
 }
 
-// Record the actual native TUI identity this helper is bound to. Each bind
-// replaces it, so a relaunched TUI's helper names the TUI that now uses the
-// file. A failed write leaves the marker absent, which keeps the directory.
-func writeInteractiveMarker(input string, tui nativeProcessIdentity) error {
-	data, err := json.Marshal(map[string]any{"pid": tui.pid, "start": tui.start})
+// The launcher records the supervisor at creation; each helper bind records
+// the supervisor from its verified binding plus its actual TUI parent, so a
+// relaunched TUI's helper names the TUI that now uses the file. A failed write
+// leaves the previous marker (or none), which only keeps the directory.
+func writeInteractiveMarker(input string, supervisor nativeProcessIdentity, tui *nativeProcessIdentity) error {
+	marker := map[string]markerIdentity{"supervisor": {PID: supervisor.pid, Start: supervisor.start}}
+	if tui != nil {
+		marker["tui"] = markerIdentity{PID: tui.pid, Start: tui.start}
+	}
+	data, err := json.Marshal(marker)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(filepath.Dir(input), interactiveMarkerName), data, 0600)
 }
 
-// The recorded TUI has definitely ended when its PID no longer exists, it
+// A recorded process has definitely ended when its PID no longer exists, it
 // remains only as an exited entry, or the PID now belongs to a process with a
 // different start identity. Unreadable or ambiguous state counts as live.
-func interactiveIdentityEnded(tui nativeProcessIdentity) bool {
-	if err := syscall.Kill(tui.pid, 0); errors.Is(err, syscall.ESRCH) {
+func interactiveIdentityEnded(p nativeProcessIdentity) bool {
+	if err := syscall.Kill(p.pid, 0); errors.Is(err, syscall.ESRCH) {
 		return true
 	}
-	current, err := inspectNativeProcess(tui.pid)
+	current, err := inspectNativeProcess(p.pid)
 	if errors.Is(err, errNativeNotLive) {
 		return true
 	}
-	return err == nil && current.start != tui.start
+	return err == nil && current.start != p.start
 }
 
 func removeInteractiveDirectory(directory string) {

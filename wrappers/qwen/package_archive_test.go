@@ -111,14 +111,9 @@ func exercisePackagedInteractiveExec(t *testing.T, public string) {
 	capture := filepath.Join(bin, "native-argv")
 	native := filepath.Join(bin, "qwen")
 	must(t, os.WriteFile(native, []byte("#!/bin/sh\nprintf '%s\\n' \"$$\" \"$SESSIONBUS_QWEN_CONTROLLER_TOKEN\" \"$QWEN_CODE_SESSION_ID\" \"$QWEN_CODE_SYSTEM_DEFAULTS_PATH\" \"$@\" > \"$QWEN_CAPTURE\"\nexit 37\n"), 0700))
-	child := exec.Command("sleep", "30")
-	must(t, child.Start())
-	ended, err := inspectNativeProcess(child.Process.Pid)
-	must(t, err)
-	_ = child.Process.Kill()
-	_ = child.Wait()
-	stale := makeLaunchDirectory(t, runtime, interactiveInputPrefix+"stale", ended)
-	preBind := makeLaunchDirectory(t, runtime, interactiveInputPrefix+"prebind", nil)
+	ended := endedProcessIdentity(t)
+	stale := makeLaunchDirectory(t, runtime, interactiveInputPrefix+"stale", interactiveMarker{supervisor: ended, tui: &ended})
+	preBind := makeLaunchDirectory(t, runtime, interactiveInputPrefix+"prebind", interactiveMarker{supervisor: ended})
 	env := append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "SESSIONBUS_QWEN_CONTROLLER_TOKEN=qpc_stale", "QWEN_CAPTURE="+capture, nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"=", "SESSIONBUS_OLD=stale", "XDG_RUNTIME_DIR="+runtime)
 
 	failed := exec.Command(public, "-n", "chosen", "--mcp-config", "{}", "--mcp-config", "{}")
@@ -161,6 +156,8 @@ func exercisePackagedInteractiveExec(t *testing.T, public string) {
 	check(t, directory.Mode().Perm() == 0700, "launch directory mode=%v", directory.Mode())
 	_, err = os.Lstat(filepath.Join(preBind, interactiveInputName))
 	check(t, err == nil, "launch removed an unbound directory: %v", err)
+	marker, ok := readInteractiveMarker(filepath.Dir(input))
+	check(t, ok && marker.supervisor.pid == command.Process.Pid && marker.tui == nil, "launch marker=%+v ok=%v", marker, ok)
 }
 
 func assertGenericSkillPayload(t *testing.T, plugin, root string) {
