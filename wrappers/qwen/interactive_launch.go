@@ -317,9 +317,11 @@ func readInteractiveMarker(directory string) (interactiveMarker, bool) {
 // The launcher records the supervisor at creation; each helper bind records
 // the supervisor from its verified binding plus its actual TUI parent, so a
 // relaunched TUI's helper names the TUI that now uses the file. The previous
-// marker is removed first: a failed or partial write then leaves no marker or
-// an unreadable one, which keeps the directory, never an older valid marker
-// naming a TUI that has since been replaced.
+// marker is removed first, so a failed or partial write leaves no marker or an
+// unreadable one, which keeps the directory. If removing the previous marker
+// fails, nothing is written and the previous marker remains; when it names a
+// replaced TUI it can still allow a later removal once both of its recorded
+// processes have ended (a stated residual).
 func writeInteractiveMarker(input string, supervisor nativeProcessIdentity, tui *nativeProcessIdentity) error {
 	marker := map[string]markerIdentity{"supervisor": {PID: supervisor.pid, Start: supervisor.start}}
 	if tui != nil {

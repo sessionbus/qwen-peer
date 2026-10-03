@@ -82,8 +82,9 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 	if err != nil {
 		return nil, err
 	}
-	// Best effort: a failed write leaves the earlier marker, which only keeps
-	// this launch directory in place.
+	// Best effort: delivery does not depend on the marker. A failed write
+	// leaves no marker or an unreadable one; a failed removal of the previous
+	// marker leaves it in place (see writeInteractiveMarker).
 	_ = writeInteractiveMarker(launch.Input, nativeProcessIdentity{pid: launch.PID, start: launch.Start}, &parent)
 	home := environmentValue(env, "QWEN_HOME")
 	if home == "" {
