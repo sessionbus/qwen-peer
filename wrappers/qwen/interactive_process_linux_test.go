@@ -27,7 +27,7 @@ func TestParseNativeStatSeparatesEndedFromMalformed(t *testing.T) {
 			t.Fatalf("state %s = %v, want not live", state, err)
 		}
 	}
-	for _, malformed := range [][]byte{[]byte("42 no parenthesis"), []byte("42 (qwen) S 1 2"), []byte("42 (qwen)"), []byte("42 (qwen) S x 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20")} {
+	for _, malformed := range [][]byte{[]byte("42 no parenthesis"), []byte("42 (qwen) S 1 2"), []byte("42 (qwen)"), []byte("42 (qwen) Z"), []byte("42 (qwen) X 1 2"), []byte("42 (qwen) S x 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20")} {
 		if _, err := parseNativeStat(42, malformed, "boot"); err == nil || errors.Is(err, errNativeNotLive) {
 			t.Fatalf("malformed %q = %v, want an ambiguous error", malformed, err)
 		}

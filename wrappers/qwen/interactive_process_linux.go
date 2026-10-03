@@ -31,11 +31,12 @@ func parseNativeStat(pid int, stat []byte, boot string) (nativeProcessIdentity, 
 		return p, errors.New("malformed native process stat")
 	}
 	fields := strings.Fields(string(stat[end+1:]))
-	if len(fields) > 0 && (fields[0] == "Z" || fields[0] == "X") {
-		return p, errNativeNotLive
-	}
+	// Short data is malformed whatever its state field says.
 	if len(fields) <= 19 {
 		return p, errors.New("malformed native process stat")
+	}
+	if fields[0] == "Z" || fields[0] == "X" {
+		return p, errNativeNotLive
 	}
 	var err error
 	p.parent, err = strconv.Atoi(fields[1])
