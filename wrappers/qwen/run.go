@@ -35,6 +35,13 @@ var errContinuationInterrupted = errors.New("Qwen continuation interrupted befor
 // continuation prompt.
 var continuationGap = func() {}
 
+// errOutputBound ends a Run whose answer would exceed one ACP frame, whether
+// from a native chunk or from joining a continuation's output.
+var errOutputBound = fmt.Errorf("Qwen output exceeds %d byte bound", maxACPFrame)
+
+// outputSeparator joins the answers of a Run's successive prompts.
+const outputSeparator = "\n\n"
+
 type nativeInterrupt struct {
 	done chan struct{}
 	err  error
@@ -129,9 +136,15 @@ func (p *Wrapper) submitPrompt(ctx context.Context, run *kit.Run, prompt []any, 
 		p.mu.Unlock()
 		return "", prior, errors.New("Qwen lane is not idle")
 	}
+	if prior != "" && len(outputSeparator) > maxACPFrame-len(prior) {
+		// The joined answer could not stay within the output bound: the
+		// continuation is not written and its owned input is retired.
+		p.mu.Unlock()
+		return "", prior, errOutputBound
+	}
 	t := &nativePrompt{run: run, submitted: make(chan struct{})}
 	if prior != "" {
-		t.output.WriteString(prior + "\n\n")
+		t.output.WriteString(prior + outputSeparator)
 	}
 	t.ctx, t.cancel = context.WithCancel(p.ctx)
 	p.active = t
@@ -321,7 +334,7 @@ func (p *Wrapper) receive(method string, raw json.RawMessage) {
 		return
 	}
 	if len(*content.Text) > maxACPFrame-t.output.Len() {
-		t.failure = fmt.Errorf("Qwen output exceeds %d byte bound", maxACPFrame)
+		t.failure = errOutputBound
 		err := t.failure
 		p.mu.Unlock()
 		p.lost(err)

@@ -509,6 +509,54 @@ func TestWorkerInterruptBeforeContinuationWriteRetiresInput(t *testing.T) {
 	<-f.ready
 }
 
+// A continuation's joined answer keeps the output bound: at the exact bound no
+// continuation is written and the Run ends with the bound error; one separator
+// below it, the continuation is written and the adapter's bound is not hit (the
+// SDK's own status frame limit then rejects a result this large, as it does for
+// a single prompt at the bound). TestWorkerOwnedInputAfterLastBoundaryContinuesTheRun
+// covers ordinary continuity.
+func TestWorkerContinuationJoinKeepsOutputBound(t *testing.T) {
+	t.Run("at_bound", func(t *testing.T) {
+		f := newLaneFixture(t, false)
+		prompt := f.execute(t, 1, "active")
+		f.chunk(t, fixtureID, strings.Repeat("a", maxACPFrame/2))
+		f.chunk(t, fixtureID, strings.Repeat("b", maxACPFrame/2))
+		f.owned(t, "late-over-bound")
+		f.terminal(t, prompt, "end_turn")
+		select {
+		case <-f.ready:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("continuation written beyond the output bound: %.200s", acpRead(t, f.reader).Params)
+		}
+		if status := f.status(t, 1); status.State != "unavailable" || !strings.Contains(status.Reason, "output exceeds") {
+			t.Fatalf("join beyond bound = %+v", status.State)
+		}
+		next := f.execute(t, 2, "next")
+		if strings.Contains(string(next.Params), "late-") {
+			t.Fatalf("retired input resubmitted: %.200s", next.Params)
+		}
+		f.terminal(t, next, "end_turn")
+		<-f.ready
+	})
+	t.Run("below_bound", func(t *testing.T) {
+		f := newLaneFixture(t, false)
+		prompt := f.execute(t, 1, "active")
+		f.chunk(t, fixtureID, strings.Repeat("a", maxACPFrame/2))
+		f.chunk(t, fixtureID, strings.Repeat("b", maxACPFrame/2-len(outputSeparator)))
+		f.owned(t, "late-at-bound")
+		f.terminal(t, prompt, "end_turn")
+		continuation := acpRead(t, f.reader)
+		if continuation.Method != "session/prompt" || !strings.Contains(string(continuation.Params), "late-at-bound") {
+			t.Fatalf("continuation = %s", continuation.Method)
+		}
+		f.terminal(t, continuation, "end_turn")
+		<-f.ready
+		if status := f.status(t, 1); strings.Contains(status.Reason, "output exceeds") {
+			t.Fatalf("join within bound failed the adapter bound: %s %q", status.State, status.Reason)
+		}
+	})
+}
+
 // Cancellation retires owned input at the native cancelled terminal: a pull
 // after the interrupt request takes nothing, no continuation follows, no later
 // wake, and the next Run is healthy without it. Input native pulled before
