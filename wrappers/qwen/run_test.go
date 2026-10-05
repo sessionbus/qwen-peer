@@ -262,25 +262,167 @@ func TestWorkerTerminalWhileSeedReceiptHeld(t *testing.T) {
 		})
 	}
 }
-func TestWorkerActiveDeliveryRefusesBeforeNativeDrain(t *testing.T) {
-	f := newLaneFixture(t, false)
-	prompt := f.execute(t, 1, "active")
-	f.send(t, "message.deliver", delivery("must-run-next"))
-	if frame := f.response(t); frame.Error == nil || frame.Error.Code != -32004 {
-		t.Fatalf("active delivery = %+v", frame)
+func (f *laneFixture) deliver(t *testing.T, body string) protocol.Frame {
+	t.Helper()
+	f.send(t, "message.deliver", delivery(body))
+	return f.response(t)
+}
+func (f *laneFixture) owned(t *testing.T, body string) {
+	t.Helper()
+	frame := f.deliver(t, body)
+	var receipt kit.DeliveryReceipt
+	if frame.Error != nil || protocol.UnmarshalResult("message.deliver", frame.Result, &receipt) != nil || receipt.Disposition != "queued_for_next_turn" {
+		t.Fatalf("active delivery %s = %+v", body, frame)
 	}
-
-	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":90,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
-	response := acpRead(t, f.reader)
+}
+func (f *laneFixture) refused(t *testing.T, body string) {
+	t.Helper()
+	if frame := f.deliver(t, body); frame.Error == nil || frame.Error.Code != -32004 {
+		t.Fatalf("delivery %s = %+v, want NotRunning", body, frame)
+	}
+}
+func (f *laneFixture) drain(t *testing.T, id int, session string) acpFrame {
+	t.Helper()
+	acpWrite(t, f.native, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"craft/drainMidTurnQueue","params":{"sessionId":"%s"}}`, id, session))
+	return acpRead(t, f.reader)
+}
+func drainedBodies(t *testing.T, response acpFrame) []string {
+	t.Helper()
 	var drained struct {
 		Messages        []string `json:"messages"`
-		HasQueuedPrompt bool     `json:"hasQueuedPrompt"`
+		HasQueuedPrompt *bool    `json:"hasQueuedPrompt"`
 	}
-	must(t, json.Unmarshal(response.Result, &drained))
-	if len(drained.Messages) != 0 || drained.HasQueuedPrompt {
-		t.Fatal(string(response.Result))
+	if response.Error != nil || json.Unmarshal(response.Result, &drained) != nil || drained.Messages == nil || drained.HasQueuedPrompt == nil || *drained.HasQueuedPrompt {
+		t.Fatalf("drain response %s %+v", response.Result, response.Error)
+	}
+	bodies := []string{}
+	for _, message := range drained.Messages {
+		for _, line := range strings.Split(message, "\n") {
+			if strings.HasPrefix(line, "owned-") || strings.HasPrefix(line, "late-") {
+				bodies = append(bodies, line)
+			}
+		}
+	}
+	return bodies
+}
+
+// Active delivery is owned and answered at once, before any native drain, so
+// two lanes blocked in mutual sends cannot wait on each other's boundary.
+// Native pulls the oldest ten per drain, and pulled input is never resubmitted.
+func TestWorkerActiveDeliveryIsOwnedAndPulledInOrder(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	var want []string
+	for i := 1; i <= 12; i++ {
+		want = append(want, fmt.Sprintf("owned-%02d", i))
+		f.owned(t, want[i-1])
+	}
+	if response := f.drain(t, 90, "foreign"); response.Error == nil || response.Error.Code != -32602 {
+		t.Fatalf("foreign drain = %+v", response)
+	}
+	if got := drainedBodies(t, f.drain(t, 91, fixtureID)); strings.Join(got, ",") != strings.Join(want[:10], ",") {
+		t.Fatalf("first drain = %v", got)
+	}
+	if got := drainedBodies(t, f.drain(t, 92, fixtureID)); strings.Join(got, ",") != strings.Join(want[10:], ",") {
+		t.Fatalf("second drain = %v", got)
+	}
+	if got := drainedBodies(t, f.drain(t, 93, fixtureID)); len(got) != 0 {
+		t.Fatalf("third drain = %v", got)
+	}
+	f.chunk(t, fixtureID, "answer")
+	f.terminal(t, prompt, "end_turn")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "completed" || status.Result.Result != "answer" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if strings.Contains(string(next.Params), "owned-") {
+		t.Fatalf("pulled input resubmitted: %s", next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// Input admitted after the prompt's last tool boundary is submitted, in order,
+// as the next native prompt of the same Run once the prompt ends.
+func TestWorkerOwnedInputAfterLastBoundaryContinuesTheRun(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "late-1")
+	f.owned(t, "late-2")
+	f.chunk(t, fixtureID, "first")
+	f.terminal(t, prompt, "end_turn")
+	continuation := acpRead(t, f.reader)
+	var params struct {
+		SessionID string `json:"sessionId"`
+		Prompt    []struct{ Type, Text string }
+	}
+	must(t, json.Unmarshal(continuation.Params, &params))
+	if continuation.Method != "session/prompt" || params.SessionID != fixtureID || len(params.Prompt) != 2 ||
+		!strings.Contains(params.Prompt[0].Text, "late-1") || !strings.Contains(params.Prompt[1].Text, "late-2") {
+		t.Fatalf("continuation = %s %s", continuation.Method, continuation.Params)
+	}
+	f.chunk(t, fixtureID, "second")
+	f.terminal(t, continuation, "end_turn")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "completed" || status.Result.Result != "first\n\nsecond" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("continued input resubmitted: %s", next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// A refusal leaves the delivery to the daemon; every later delivery of that Run
+// follows it, so owned input never overtakes it.
+func TestWorkerRefusedDeliveryKeepsLaterOnesWithTheDaemon(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.refused(t, strings.Repeat("x", maxStagedBytes+1))
+	f.refused(t, "late-after-refusal")
+	if got := drainedBodies(t, f.drain(t, 90, fixtureID)); len(got) != 0 {
+		t.Fatalf("drain after refusal = %v", got)
 	}
 	f.terminal(t, prompt, "end_turn")
+	<-f.ready
+	next := f.execute(t, 2, "next")
+	f.owned(t, "owned-next-run")
+	if got := drainedBodies(t, f.drain(t, 91, fixtureID)); strings.Join(got, ",") != "owned-next-run" {
+		t.Fatalf("next Run drain = %v", got)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// Cancellation retires owned input that native has not pulled: no continuation,
+// no later wake, and a healthy next Run without it.
+func TestWorkerCancelRetiresOwnedInput(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "hold")
+	f.owned(t, "late-retired")
+	f.send(t, "turn.interrupt", map[string]string{"session_id": fixtureID + "@local"})
+	if frame := f.response(t); frame.Error != nil {
+		t.Fatal(frame.Error)
+	}
+	cancel := acpRead(t, f.reader)
+	if cancel.Method != "craft/cancelPendingPrompt" {
+		t.Fatal(cancel.Method)
+	}
+	f.refused(t, "late-after-interrupt")
+	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":`+string(cancel.ID)+`,"result":{"cancelled":true}}`)
+	f.terminal(t, prompt, "cancelled")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "interrupted" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if next.Method != "session/prompt" || strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("after cancel = %s %s", next.Method, next.Params)
+	}
+	f.terminal(t, next, "end_turn")
 	<-f.ready
 }
 func TestWorkerCancelAndTerminalBothOrdersHealthyNext(t *testing.T) {

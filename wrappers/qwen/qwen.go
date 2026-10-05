@@ -39,6 +39,9 @@ type Wrapper struct {
 	id              string
 	active          *nativePrompt
 	run             *sessionkit.Run
+	staged          []string // owned lane input, oldest first
+	stagedBytes     int
+	refused         *sessionkit.Run // a Run that left a delivery to the daemon
 	opened, closing bool
 	shutdown        func()
 }

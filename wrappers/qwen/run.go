@@ -59,15 +59,58 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 		}
 		return result, err
 	}
+	prompt := []any{map[string]string{"type": "text", "text": text}}
+	var output, reason string
+	seeded := seed.Delivery != nil
+	for {
+		reason, output, err = p.submitPrompt(ctx, run, prompt, output, report, seeded)
+		p.mu.Lock()
+		var next []string
+		if err == nil && reason != "cancelled" && !run.Interrupted() && !p.closing {
+			// Input admitted after the prompt's last tool boundary was never
+			// pulled: submit it now, in order, within this Run.
+			next = p.takeStagedLocked(len(p.staged))
+		}
+		// Owned input not submitted here is retired with the cancelled,
+		// failed or closing Run; it starts no later work.
+		p.staged, p.stagedBytes = nil, 0
+		p.mu.Unlock()
+		if err != nil {
+			return result, err
+		}
+		if len(next) == 0 {
+			break
+		}
+		prompt = make([]any, 0, len(next))
+		for _, text := range next {
+			prompt = append(prompt, map[string]string{"type": "text", "text": text})
+		}
+		seeded = false
+	}
+	outcome := "completed"
+	if reason == "cancelled" {
+		outcome = "interrupted"
+	} else if reason != "end_turn" {
+		outcome = "failed"
+	}
+	return kit.TurnResult{Outcome: outcome, Result: output, NativeStopReason: reason}, nil
+}
+
+// submitPrompt runs one native prompt of a Run to its terminal. Its output
+// continues prior; only the Run's seed delivery reports a receipt.
+func (p *Wrapper) submitPrompt(ctx context.Context, run *kit.Run, prompt []any, prior string, report func(kit.DeliveryReceipt, error) error, seeded bool) (reason, output string, err error) {
 	p.mu.Lock()
 	if !p.opened || p.closing || p.active != nil {
 		p.mu.Unlock()
-		return result, errors.New("Qwen lane is not idle")
+		return "", prior, errors.New("Qwen lane is not idle")
 	}
 	t := &nativePrompt{run: run, submitted: make(chan struct{})}
+	if prior != "" {
+		t.output.WriteString(prior + "\n\n")
+	}
 	t.ctx, t.cancel = context.WithCancel(p.ctx)
 	p.active = t
-	params := map[string]any{"sessionId": p.id, "prompt": []any{map[string]string{"type": "text", "text": text}}}
+	params := map[string]any{"sessionId": p.id, "prompt": prompt}
 	client := p.client
 	p.mu.Unlock()
 	stopCancel := context.AfterFunc(ctx, func() {
@@ -132,7 +175,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 			_ = p.startInterrupt(run)
 		}
 	}
-	if seed.Delivery != nil {
+	if seeded {
 		receipt := kit.DeliveryReceipt{Disposition: "written"}
 		var receiptErr error
 		if writeErr != nil {
@@ -171,19 +214,11 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 	}
 	p.mu.Lock()
 	t.retiring = true
-	failure, reason, output := t.failure, t.stopReason, t.output.String()
+	failure := t.failure
+	reason, output = t.stopReason, t.output.String()
 	p.mu.Unlock()
 	err = errors.Join(err, writeErr, nativeErr, failure)
-	if err != nil {
-		return result, err
-	}
-	outcome := "completed"
-	if reason == "cancelled" {
-		outcome = "interrupted"
-	} else if reason != "end_turn" {
-		outcome = "failed"
-	}
-	return kit.TurnResult{Outcome: outcome, Result: output, NativeStopReason: reason}, nil
+	return reason, output, err
 }
 func (p *Wrapper) startInterrupt(run *kit.Run) *nativeInterrupt {
 	p.mu.Lock()
