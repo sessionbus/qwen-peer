@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
@@ -23,8 +24,8 @@ type controlledLane struct {
 	reportEntered, reportRelease chan struct{}
 }
 
-func (p *controlledLane) Deliver(ctx context.Context, d kit.DeliveryRequest, _ *kit.Run) (kit.DeliveryReceipt, error) {
-	return p.Wrapper.Deliver(ctx, d, nil)
+func (p *controlledLane) Deliver(ctx context.Context, d kit.DeliveryRequest, r *kit.Run) (kit.DeliveryReceipt, error) {
+	return p.Wrapper.Deliver(ctx, d, r)
 }
 func (p *controlledLane) Open(context.Context, kit.OpenRequest) (kit.OpenResult, error) {
 	return kit.OpenResult{SessionID: p.id}, nil
@@ -262,25 +263,331 @@ func TestWorkerTerminalWhileSeedReceiptHeld(t *testing.T) {
 		})
 	}
 }
-func TestWorkerActiveDeliveryRefusesBeforeNativeDrain(t *testing.T) {
-	f := newLaneFixture(t, false)
-	prompt := f.execute(t, 1, "active")
-	f.send(t, "message.deliver", delivery("must-run-next"))
-	if frame := f.response(t); frame.Error == nil || frame.Error.Code != -32004 {
-		t.Fatalf("active delivery = %+v", frame)
+func (f *laneFixture) deliver(t *testing.T, body string) protocol.Frame {
+	t.Helper()
+	f.send(t, "message.deliver", delivery(body))
+	return f.response(t)
+}
+func (f *laneFixture) owned(t *testing.T, body string) {
+	t.Helper()
+	frame := f.deliver(t, body)
+	var receipt kit.DeliveryReceipt
+	if frame.Error != nil || protocol.UnmarshalResult("message.deliver", frame.Result, &receipt) != nil || receipt.Disposition != "queued_for_next_turn" {
+		t.Fatalf("active delivery %s = %+v", body, frame)
 	}
-
-	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":90,"method":"craft/drainMidTurnQueue","params":{"sessionId":"`+fixtureID+`"}}`)
-	response := acpRead(t, f.reader)
+}
+func (f *laneFixture) refused(t *testing.T, body string) {
+	t.Helper()
+	if frame := f.deliver(t, body); frame.Error == nil || frame.Error.Code != -32004 {
+		t.Fatalf("delivery %s = %+v, want NotRunning", body, frame)
+	}
+}
+func (f *laneFixture) drain(t *testing.T, id int, session string) acpFrame {
+	t.Helper()
+	acpWrite(t, f.native, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"craft/drainMidTurnQueue","params":{"sessionId":"%s"}}`, id, session))
+	return acpRead(t, f.reader)
+}
+func (f *laneFixture) drainPrompt(t *testing.T, id int, prompt string) acpFrame {
+	t.Helper()
+	acpWrite(t, f.native, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"craft/drainMidTurnQueue","params":{"sessionId":"%s","promptId":"%s"}}`, id, fixtureID, prompt))
+	return acpRead(t, f.reader)
+}
+func drainedBodies(t *testing.T, response acpFrame) []string {
+	t.Helper()
 	var drained struct {
 		Messages        []string `json:"messages"`
-		HasQueuedPrompt bool     `json:"hasQueuedPrompt"`
+		HasQueuedPrompt *bool    `json:"hasQueuedPrompt"`
 	}
-	must(t, json.Unmarshal(response.Result, &drained))
-	if len(drained.Messages) != 0 || drained.HasQueuedPrompt {
-		t.Fatal(string(response.Result))
+	if response.Error != nil || json.Unmarshal(response.Result, &drained) != nil || drained.Messages == nil || drained.HasQueuedPrompt == nil || *drained.HasQueuedPrompt {
+		t.Fatalf("drain response %s %+v", response.Result, response.Error)
+	}
+	bodies := []string{}
+	for _, message := range drained.Messages {
+		for _, line := range strings.Split(message, "\n") {
+			if strings.HasPrefix(line, "owned-") || strings.HasPrefix(line, "late-") {
+				bodies = append(bodies, line)
+			}
+		}
+	}
+	return bodies
+}
+
+// Active delivery is owned and answered at once, before any native drain, so
+// two lanes blocked in mutual sends cannot wait on each other's boundary.
+// Native pulls the oldest ten per drain, and pulled input is never resubmitted.
+func TestWorkerActiveDeliveryIsOwnedAndPulledInOrder(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	var want []string
+	for i := 1; i <= 12; i++ {
+		want = append(want, fmt.Sprintf("owned-%02d", i))
+		f.owned(t, want[i-1])
+	}
+	if response := f.drain(t, 90, "foreign"); response.Error == nil || response.Error.Code != -32602 {
+		t.Fatalf("foreign drain = %+v", response)
+	}
+	if got := drainedBodies(t, f.drain(t, 91, fixtureID)); strings.Join(got, ",") != strings.Join(want[:10], ",") {
+		t.Fatalf("first drain = %v", got)
+	}
+	if got := drainedBodies(t, f.drain(t, 92, fixtureID)); strings.Join(got, ",") != strings.Join(want[10:], ",") {
+		t.Fatalf("second drain = %v", got)
+	}
+	if got := drainedBodies(t, f.drain(t, 93, fixtureID)); len(got) != 0 {
+		t.Fatalf("third drain = %v", got)
+	}
+	f.chunk(t, fixtureID, "answer")
+	f.terminal(t, prompt, "end_turn")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "completed" || status.Result.Result != "answer" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if strings.Contains(string(next.Params), "owned-") {
+		t.Fatalf("pulled input resubmitted: %s", next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// Input admitted after the prompt's last tool boundary is submitted, in order,
+// as the next native prompt of the same Run once the prompt ends.
+func TestWorkerOwnedInputAfterLastBoundaryContinuesTheRun(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "late-1")
+	f.owned(t, "late-2")
+	f.chunk(t, fixtureID, "first")
+	f.terminal(t, prompt, "end_turn")
+	continuation := acpRead(t, f.reader)
+	var params struct {
+		SessionID string `json:"sessionId"`
+		Prompt    []struct{ Type, Text string }
+	}
+	must(t, json.Unmarshal(continuation.Params, &params))
+	if continuation.Method != "session/prompt" || params.SessionID != fixtureID || len(params.Prompt) != 2 ||
+		!strings.Contains(params.Prompt[0].Text, "late-1") || !strings.Contains(params.Prompt[1].Text, "late-2") {
+		t.Fatalf("continuation = %s %s", continuation.Method, continuation.Params)
+	}
+	f.chunk(t, fixtureID, "second")
+	f.terminal(t, continuation, "end_turn")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "completed" || status.Result.Result != "first\n\nsecond" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("continued input resubmitted: %s", next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// A refusal leaves the delivery to the daemon; every later delivery of that Run
+// follows it, so owned input never overtakes it.
+func TestWorkerRefusedDeliveryKeepsLaterOnesWithTheDaemon(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.refused(t, strings.Repeat("x", maxStagedBytes+1))
+	f.refused(t, "late-after-refusal")
+	if got := drainedBodies(t, f.drain(t, 90, fixtureID)); len(got) != 0 {
+		t.Fatalf("drain after refusal = %v", got)
 	}
 	f.terminal(t, prompt, "end_turn")
+	<-f.ready
+	next := f.execute(t, 2, "next")
+	f.owned(t, "owned-next-run")
+	if got := drainedBodies(t, f.drain(t, 91, fixtureID)); strings.Join(got, ",") != "owned-next-run" {
+		t.Fatalf("next Run drain = %v", got)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// Only a clean native end continues the Run: a failed terminal such as
+// native's session token limit ends it failed and retires owned input.
+func TestWorkerFailedTerminalDoesNotContinue(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "late-after-limit")
+	f.terminal(t, prompt, "max_tokens")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "failed" || status.Result.NativeStopReason != "max_tokens" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("failed terminal continued: %s", next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// This lane's prompts carry no native prompt ID: a pull naming one (a native
+// background turn) is answered empty and leaves owned input for this Run.
+func TestWorkerDrainNamingAPromptConsumesNothing(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "owned-kept")
+	if got := drainedBodies(t, f.drainPrompt(t, 90, "background-notification")); len(got) != 0 {
+		t.Fatalf("prompt-named drain = %v", got)
+	}
+	if got := drainedBodies(t, f.drain(t, 91, fixtureID)); strings.Join(got, ",") != "owned-kept" {
+		t.Fatalf("ordinary drain = %v", got)
+	}
+	f.terminal(t, prompt, "end_turn")
+	<-f.ready
+}
+
+// A delivery callback captured for an ended Run neither steers the lane's
+// current Run nor marks it refused.
+func TestWorkerDeliveryStaysWithItsCapturedRun(t *testing.T) {
+	f := newLaneFixture(t, false)
+	first := f.execute(t, 1, "first")
+	f.p.mu.Lock()
+	captured := f.p.run
+	f.p.mu.Unlock()
+	f.terminal(t, first, "end_turn")
+	<-f.ready
+	second := f.execute(t, 2, "second")
+	receipt, err := f.p.Deliver(context.Background(), delivery("late-stale"), captured)
+	var protocolError *kit.ProtocolError
+	if !errors.As(err, &protocolError) || protocolError.Code != -32004 || receipt.Disposition != "" {
+		t.Fatalf("stale Run delivery = %+v, %v", receipt, err)
+	}
+	f.owned(t, "owned-current")
+	if got := drainedBodies(t, f.drain(t, 90, fixtureID)); strings.Join(got, ",") != "owned-current" {
+		t.Fatalf("current Run drain = %v", got)
+	}
+	f.terminal(t, second, "end_turn")
+	<-f.ready
+}
+
+// An interrupt recorded between a prompt's terminal and its continuation's
+// write retires the owned input: no native prompt, an interrupted Run.
+func TestWorkerInterruptBeforeContinuationWriteRetiresInput(t *testing.T) {
+	f := newLaneFixture(t, false)
+	interrupted := make(chan error, 1)
+	original := continuationGap
+	continuationGap = func() {
+		// Runs on the Run goroutine: report failures instead of calling t.Fatal.
+		// The test goroutine is blocked until interrupted is received, so it
+		// does not touch nextID meanwhile; request IDs must keep increasing.
+		f.nextID++
+		body, err := protocol.RequestBytes(f.nextID, "turn.interrupt", map[string]string{"session_id": fixtureID + "@local"})
+		if err == nil {
+			f.writeMu.Lock()
+			_, err = f.bus.Write(body)
+			f.writeMu.Unlock()
+		}
+		if err == nil {
+			if frame := <-f.responses; frame.Error != nil {
+				err = fmt.Errorf("interrupt: %+v", frame.Error)
+			}
+		}
+		interrupted <- err
+	}
+	t.Cleanup(func() { continuationGap = original })
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "late-gap")
+	f.terminal(t, prompt, "end_turn")
+	select {
+	case <-f.ready:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("continuation submitted after interrupt: %s", acpRead(t, f.reader).Params)
+	}
+	if err := <-interrupted; err != nil {
+		t.Fatal(err)
+	}
+	if status := f.status(t, 1); status.Result.Outcome != "interrupted" || status.Result.NativeStopReason != "end_turn" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if next.Method != "session/prompt" || strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("after gap interrupt = %s %s", next.Method, next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// A continuation's joined answer keeps the output bound: at the exact bound no
+// continuation is written and the Run ends with the bound error; one separator
+// below it, the continuation is written and the adapter's bound is not hit (the
+// SDK's own status frame limit then rejects a result this large, as it does for
+// a single prompt at the bound). TestWorkerOwnedInputAfterLastBoundaryContinuesTheRun
+// covers ordinary continuity.
+func TestWorkerContinuationJoinKeepsOutputBound(t *testing.T) {
+	t.Run("at_bound", func(t *testing.T) {
+		f := newLaneFixture(t, false)
+		prompt := f.execute(t, 1, "active")
+		f.chunk(t, fixtureID, strings.Repeat("a", maxACPFrame/2))
+		f.chunk(t, fixtureID, strings.Repeat("b", maxACPFrame/2))
+		f.owned(t, "late-over-bound")
+		f.terminal(t, prompt, "end_turn")
+		select {
+		case <-f.ready:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("continuation written beyond the output bound: %.200s", acpRead(t, f.reader).Params)
+		}
+		if status := f.status(t, 1); status.State != "unavailable" || !strings.Contains(status.Reason, "output exceeds") {
+			t.Fatalf("join beyond bound = %+v", status.State)
+		}
+		next := f.execute(t, 2, "next")
+		if strings.Contains(string(next.Params), "late-") {
+			t.Fatalf("retired input resubmitted: %.200s", next.Params)
+		}
+		f.terminal(t, next, "end_turn")
+		<-f.ready
+	})
+	t.Run("below_bound", func(t *testing.T) {
+		f := newLaneFixture(t, false)
+		prompt := f.execute(t, 1, "active")
+		f.chunk(t, fixtureID, strings.Repeat("a", maxACPFrame/2))
+		f.chunk(t, fixtureID, strings.Repeat("b", maxACPFrame/2-len(outputSeparator)))
+		f.owned(t, "late-at-bound")
+		f.terminal(t, prompt, "end_turn")
+		continuation := acpRead(t, f.reader)
+		if continuation.Method != "session/prompt" || !strings.Contains(string(continuation.Params), "late-at-bound") {
+			t.Fatalf("continuation = %s", continuation.Method)
+		}
+		f.terminal(t, continuation, "end_turn")
+		<-f.ready
+		if status := f.status(t, 1); strings.Contains(status.Reason, "output exceeds") {
+			t.Fatalf("join within bound failed the adapter bound: %s %q", status.State, status.Reason)
+		}
+	})
+}
+
+// Cancellation retires owned input at the native cancelled terminal: a pull
+// after the interrupt request takes nothing, no continuation follows, no later
+// wake, and the next Run is healthy without it. Input native pulled before
+// the interrupt request is native's.
+func TestWorkerCancelRetiresOwnedInput(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "hold")
+	f.owned(t, "late-retired")
+	f.send(t, "turn.interrupt", map[string]string{"session_id": fixtureID + "@local"})
+	if frame := f.response(t); frame.Error != nil {
+		t.Fatal(frame.Error)
+	}
+	cancel := acpRead(t, f.reader)
+	if cancel.Method != "craft/cancelPendingPrompt" {
+		t.Fatal(cancel.Method)
+	}
+	f.refused(t, "late-after-interrupt")
+	if got := drainedBodies(t, f.drain(t, 90, fixtureID)); len(got) != 0 {
+		t.Fatalf("drain after interrupt = %v", got)
+	}
+	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":`+string(cancel.ID)+`,"result":{"cancelled":true}}`)
+	f.terminal(t, prompt, "cancelled")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "interrupted" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if next.Method != "session/prompt" || strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("after cancel = %s %s", next.Method, next.Params)
+	}
+	f.terminal(t, next, "end_turn")
 	<-f.ready
 }
 func TestWorkerCancelAndTerminalBothOrdersHealthyNext(t *testing.T) {

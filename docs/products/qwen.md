@@ -25,6 +25,13 @@
 > exec launch and launch-private input file. The installed acceptance records
 > below refer to their original builds and remain unchanged.
 
+> Lane owned-input correction (2026-10-05, not yet merged or installed): an
+> active lane again serves `craft/drainMidTurnQueue`, but without the
+> 2026-09-21 wait. Delivery is owned and answered at once; native pulls it at
+> its next tool boundary, and input still owned at the prompt's end continues
+> the same run. The [package README](../../qwen/README.md) states the rules;
+> the update below records the earlier refusal.
+
 > Mandatory-wake update (2026-09-21): the 0.24.1 ACP lane no longer uses its
 > mid-turn drain as a delivery admission path. Native never calls
 > `craft/drainMidTurnQueue` while a tool call is executing, so two

@@ -26,6 +26,22 @@ type nativePrompt struct {
 	stopReason string
 	interrupt  *nativeInterrupt
 }
+
+// errContinuationInterrupted refuses a continuation prompt whose Run was
+// interrupted before the prompt was written to native.
+var errContinuationInterrupted = errors.New("Qwen continuation interrupted before submission")
+
+// continuationGap is a test seam between taking owned input and writing its
+// continuation prompt.
+var continuationGap = func() {}
+
+// errOutputBound ends a Run whose answer would exceed one ACP frame, whether
+// from a native chunk or from joining a continuation's output.
+var errOutputBound = fmt.Errorf("Qwen output exceeds %d byte bound", maxACPFrame)
+
+// outputSeparator joins the answers of a Run's successive prompts.
+const outputSeparator = "\n\n"
+
 type nativeInterrupt struct {
 	done chan struct{}
 	err  error
@@ -59,15 +75,80 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 		}
 		return result, err
 	}
+	prompt := []any{map[string]string{"type": "text", "text": text}}
+	var output, reason string
+	if seed.Delivery == nil {
+		report = nil
+	}
+	for continuation := false; ; continuation = true {
+		var nextReason, nextOutput string
+		nextReason, nextOutput, err = p.submitPrompt(ctx, run, prompt, output, report, continuation)
+		if continuation && errors.Is(err, errContinuationInterrupted) {
+			// The interrupt came before the continuation reached native: its
+			// owned input is retired and the Run ends interrupted after its
+			// last native terminal.
+			p.mu.Lock()
+			p.staged, p.stagedBytes = nil, 0
+			p.mu.Unlock()
+			return kit.TurnResult{Outcome: "interrupted", Result: output, NativeStopReason: reason}, nil
+		}
+		reason, output = nextReason, nextOutput
+		p.mu.Lock()
+		var next []string
+		if err == nil && reason == "end_turn" && !run.Interrupted() && !p.closing {
+			// Input admitted after the prompt's last tool boundary was never
+			// pulled: submit it now, in order, within this Run. Only a clean
+			// end continues; a later prompt must not hide a failed terminal.
+			next = p.takeStagedLocked(len(p.staged))
+		}
+		// Owned input not submitted here is retired with the cancelled,
+		// failed or closing Run; it starts no later work.
+		p.staged, p.stagedBytes = nil, 0
+		p.mu.Unlock()
+		if err != nil {
+			return result, err
+		}
+		if len(next) == 0 {
+			break
+		}
+		prompt = make([]any, 0, len(next))
+		for _, text := range next {
+			prompt = append(prompt, map[string]string{"type": "text", "text": text})
+		}
+		report = nil
+		continuationGap()
+	}
+	outcome := "completed"
+	if reason == "cancelled" {
+		outcome = "interrupted"
+	} else if reason != "end_turn" {
+		outcome = "failed"
+	}
+	return kit.TurnResult{Outcome: outcome, Result: output, NativeStopReason: reason}, nil
+}
+
+// submitPrompt runs one native prompt of a Run to its terminal. Its output
+// continues prior; report is set only for the Run's seed delivery. A
+// continuation is not written once its Run has been interrupted.
+func (p *Wrapper) submitPrompt(ctx context.Context, run *kit.Run, prompt []any, prior string, report func(kit.DeliveryReceipt, error) error, continuation bool) (reason, output string, err error) {
 	p.mu.Lock()
 	if !p.opened || p.closing || p.active != nil {
 		p.mu.Unlock()
-		return result, errors.New("Qwen lane is not idle")
+		return "", prior, errors.New("Qwen lane is not idle")
+	}
+	if prior != "" && len(outputSeparator) > maxACPFrame-len(prior) {
+		// The joined answer could not stay within the output bound: the
+		// continuation is not written and its owned input is retired.
+		p.mu.Unlock()
+		return "", prior, errOutputBound
 	}
 	t := &nativePrompt{run: run, submitted: make(chan struct{})}
+	if prior != "" {
+		t.output.WriteString(prior + outputSeparator)
+	}
 	t.ctx, t.cancel = context.WithCancel(p.ctx)
 	p.active = t
-	params := map[string]any{"sessionId": p.id, "prompt": []any{map[string]string{"type": "text", "text": text}}}
+	params := map[string]any{"sessionId": p.id, "prompt": prompt}
 	client := p.client
 	p.mu.Unlock()
 	stopCancel := context.AfterFunc(ctx, func() {
@@ -99,6 +180,9 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 			defer p.mu.Unlock()
 			if p.closing || p.active != t || t.ctx.Err() != nil {
 				return errors.New("Qwen prompt closed before submission")
+			}
+			if continuation && run.Interrupted() {
+				return errContinuationInterrupted
 			}
 			t.attempted = true
 			return nil
@@ -132,7 +216,7 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 			_ = p.startInterrupt(run)
 		}
 	}
-	if seed.Delivery != nil {
+	if report != nil {
 		receipt := kit.DeliveryReceipt{Disposition: "written"}
 		var receiptErr error
 		if writeErr != nil {
@@ -171,19 +255,11 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 	}
 	p.mu.Lock()
 	t.retiring = true
-	failure, reason, output := t.failure, t.stopReason, t.output.String()
+	failure := t.failure
+	reason, output = t.stopReason, t.output.String()
 	p.mu.Unlock()
 	err = errors.Join(err, writeErr, nativeErr, failure)
-	if err != nil {
-		return result, err
-	}
-	outcome := "completed"
-	if reason == "cancelled" {
-		outcome = "interrupted"
-	} else if reason != "end_turn" {
-		outcome = "failed"
-	}
-	return kit.TurnResult{Outcome: outcome, Result: output, NativeStopReason: reason}, nil
+	return reason, output, err
 }
 func (p *Wrapper) startInterrupt(run *kit.Run) *nativeInterrupt {
 	p.mu.Lock()
@@ -258,7 +334,7 @@ func (p *Wrapper) receive(method string, raw json.RawMessage) {
 		return
 	}
 	if len(*content.Text) > maxACPFrame-t.output.Len() {
-		t.failure = fmt.Errorf("Qwen output exceeds %d byte bound", maxACPFrame)
+		t.failure = errOutputBound
 		err := t.failure
 		p.mu.Unlock()
 		p.lost(err)
