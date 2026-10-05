@@ -66,17 +66,20 @@ A delivery during a run's submitted native prompt is owned by the lane and
 answered `queued_for_next_turn` at once, without waiting for native, so two
 lanes in mutual Sessionbus sends never wait on each other. Qwen pulls owned
 input through `craft/drainMidTurnQueue` after its next tool batch, at most ten
-messages per pull, into the same native prompt. Input still owned when that
-prompt ends normally (`end_turn`) is submitted, in order, as the next native
-prompt of the same run; the run result joins the prompts' answers and takes
-the final prompt's outcome. An interrupt or a failed end retires owned input
-that native has not pulled; close or loss discards it. Pulled input belongs to native and is
-never resent. An idle delivery, or one before the prompt is submitted, after
-it ends, after an interrupt request or beyond the bound (256 messages,
-128 KiB), returns NotRunning: the daemon starts an idle delivery as a managed
-run or retains an active-turn delivery in bounded memory for the automatic
-next run, and later deliveries of that run follow it. A seeded run reports
-`written` only after the full native prompt request write.
+messages per pull, into the same native prompt. The lane's prompts carry no
+native prompt ID, so a pull naming one, such as a native background turn, is
+answered empty. Input still owned when that prompt ends normally (`end_turn`)
+is submitted, in order, as the next native prompt of the same run; the run
+result joins the prompts' answers and takes the final prompt's outcome. An
+interrupt or a failed end retires owned input that native has not pulled:
+after an interrupt request a pull takes nothing, and the native cancelled
+terminal retires the rest. Close or loss discards it. Pulled input belongs to
+native and is never resent. An idle delivery, or one before the prompt is
+submitted, after it ends, after an interrupt request or beyond the bound (256
+messages, 128 KiB), returns NotRunning: the daemon starts an idle delivery as
+a managed run or retains an active-turn delivery in bounded memory for the
+automatic next run, and later deliveries of that run follow it. A seeded run
+reports `written` only after the full native prompt request write.
 `queued_for_next_turn` is not native admission, durability, or consumption.
 
 Close and automatic close retire the lane and leave native Qwen history in

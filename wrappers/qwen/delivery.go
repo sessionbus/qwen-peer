@@ -23,7 +23,7 @@ const maxStagedBytes = maxACPFrame / 8
 // submitted by the Run (executeRun). Never wait for that pull: native drains
 // only after a whole tool batch, so two lanes blocked in mutual Sessionbus
 // sends would deadlock.
-func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, _ *kit.Run) (kit.DeliveryReceipt, error) {
+func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, run *kit.Run) (kit.DeliveryReceipt, error) {
 	text, err := host.RenderNativeMessage(request)
 	if err != nil {
 		return kit.DeliveryReceipt{Disposition: "rejected", Reason: "invalid_input"}, nil
@@ -33,15 +33,18 @@ func (p *Wrapper) Deliver(ctx context.Context, request kit.DeliveryRequest, _ *k
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if run == nil || run != p.run {
+		// The SDK captured another Run, which has since ended: this callback
+		// must neither steer nor mark the lane's current Run.
+		return kit.DeliveryReceipt{}, host.NotRunning()
+	}
 	t := p.active
-	if t == nil || !t.attempted || t.terminal || t.retiring || p.closing || t.run.Interrupted() || p.refused == t.run ||
+	if t == nil || t.run != run || !t.attempted || t.terminal || t.retiring || p.closing || run.Interrupted() || p.refused == run ||
 		len(p.staged) >= maxACPPending || len(text) > maxStagedBytes-p.stagedBytes {
 		// Nothing reached native: the daemon retains the original delivery for
 		// an automatic Run. Later deliveries during this Run follow it there,
 		// so none overtakes it.
-		if p.run != nil {
-			p.refused = p.run
-		}
+		p.refused = run
 		return kit.DeliveryReceipt{}, host.NotRunning()
 	}
 	p.staged = append(p.staged, text)
@@ -68,7 +71,8 @@ func (p *Wrapper) answer(method string, raw json.RawMessage) (*acpResponse, erro
 		return nil, &acpError{Code: -32601, Message: "unsupported Qwen ACP client request " + method}
 	}
 	var params struct {
-		SessionID string `json:"sessionId"`
+		SessionID string  `json:"sessionId"`
+		PromptID  *string `json:"promptId"`
 	}
 	if json.Unmarshal(raw, &params) != nil || params.SessionID == "" {
 		return nil, &acpError{Code: -32602, Message: "invalid Qwen drain parameters"}
@@ -79,7 +83,10 @@ func (p *Wrapper) answer(method string, raw json.RawMessage) (*acpResponse, erro
 		return nil, &acpError{Code: -32602, Message: "Qwen drain requested another session"}
 	}
 	messages := []string{}
-	if t := p.active; t != nil && t.attempted && !t.terminal && !p.closing {
+	// This lane's prompts carry no native prompt ID, so a pull naming one (a
+	// native background turn) is not this Run's. After an interrupt request,
+	// owned input waits for the cancelled terminal, which retires it.
+	if t := p.active; params.PromptID == nil && t != nil && t.attempted && !t.terminal && !p.closing && !t.run.Interrupted() {
 		// Pulled input is native's from here: a lost answer is an uncertain
 		// handoff and is never replayed.
 		messages = p.takeStagedLocked(maxDrainMessages)

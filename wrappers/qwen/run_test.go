@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	kit "github.com/antst/sessionbus/bus/sdk/go"
 	"github.com/antst/sessionbus/bus/sdk/go/protocol"
@@ -23,8 +24,8 @@ type controlledLane struct {
 	reportEntered, reportRelease chan struct{}
 }
 
-func (p *controlledLane) Deliver(ctx context.Context, d kit.DeliveryRequest, _ *kit.Run) (kit.DeliveryReceipt, error) {
-	return p.Wrapper.Deliver(ctx, d, nil)
+func (p *controlledLane) Deliver(ctx context.Context, d kit.DeliveryRequest, r *kit.Run) (kit.DeliveryReceipt, error) {
+	return p.Wrapper.Deliver(ctx, d, r)
 }
 func (p *controlledLane) Open(context.Context, kit.OpenRequest) (kit.OpenResult, error) {
 	return kit.OpenResult{SessionID: p.id}, nil
@@ -286,6 +287,11 @@ func (f *laneFixture) drain(t *testing.T, id int, session string) acpFrame {
 	acpWrite(t, f.native, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"craft/drainMidTurnQueue","params":{"sessionId":"%s"}}`, id, session))
 	return acpRead(t, f.reader)
 }
+func (f *laneFixture) drainPrompt(t *testing.T, id int, prompt string) acpFrame {
+	t.Helper()
+	acpWrite(t, f.native, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"craft/drainMidTurnQueue","params":{"sessionId":"%s","promptId":"%s"}}`, id, fixtureID, prompt))
+	return acpRead(t, f.reader)
+}
 func drainedBodies(t *testing.T, response acpFrame) []string {
 	t.Helper()
 	var drained struct {
@@ -416,8 +422,97 @@ func TestWorkerFailedTerminalDoesNotContinue(t *testing.T) {
 	<-f.ready
 }
 
-// Cancellation retires owned input that native has not pulled: no continuation,
-// no later wake, and a healthy next Run without it.
+// This lane's prompts carry no native prompt ID: a pull naming one (a native
+// background turn) is answered empty and leaves owned input for this Run.
+func TestWorkerDrainNamingAPromptConsumesNothing(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "owned-kept")
+	if got := drainedBodies(t, f.drainPrompt(t, 90, "background-notification")); len(got) != 0 {
+		t.Fatalf("prompt-named drain = %v", got)
+	}
+	if got := drainedBodies(t, f.drain(t, 91, fixtureID)); strings.Join(got, ",") != "owned-kept" {
+		t.Fatalf("ordinary drain = %v", got)
+	}
+	f.terminal(t, prompt, "end_turn")
+	<-f.ready
+}
+
+// A delivery callback captured for an ended Run neither steers the lane's
+// current Run nor marks it refused.
+func TestWorkerDeliveryStaysWithItsCapturedRun(t *testing.T) {
+	f := newLaneFixture(t, false)
+	first := f.execute(t, 1, "first")
+	f.p.mu.Lock()
+	captured := f.p.run
+	f.p.mu.Unlock()
+	f.terminal(t, first, "end_turn")
+	<-f.ready
+	second := f.execute(t, 2, "second")
+	receipt, err := f.p.Deliver(context.Background(), delivery("late-stale"), captured)
+	var protocolError *kit.ProtocolError
+	if !errors.As(err, &protocolError) || protocolError.Code != -32004 || receipt.Disposition != "" {
+		t.Fatalf("stale Run delivery = %+v, %v", receipt, err)
+	}
+	f.owned(t, "owned-current")
+	if got := drainedBodies(t, f.drain(t, 90, fixtureID)); strings.Join(got, ",") != "owned-current" {
+		t.Fatalf("current Run drain = %v", got)
+	}
+	f.terminal(t, second, "end_turn")
+	<-f.ready
+}
+
+// An interrupt recorded between a prompt's terminal and its continuation's
+// write retires the owned input: no native prompt, an interrupted Run.
+func TestWorkerInterruptBeforeContinuationWriteRetiresInput(t *testing.T) {
+	f := newLaneFixture(t, false)
+	interrupted := make(chan error, 1)
+	original := continuationGap
+	continuationGap = func() {
+		// Runs on the Run goroutine: report failures instead of calling t.Fatal.
+		// The test goroutine is blocked until interrupted is received, so it
+		// does not touch nextID meanwhile; request IDs must keep increasing.
+		f.nextID++
+		body, err := protocol.RequestBytes(f.nextID, "turn.interrupt", map[string]string{"session_id": fixtureID + "@local"})
+		if err == nil {
+			f.writeMu.Lock()
+			_, err = f.bus.Write(body)
+			f.writeMu.Unlock()
+		}
+		if err == nil {
+			if frame := <-f.responses; frame.Error != nil {
+				err = fmt.Errorf("interrupt: %+v", frame.Error)
+			}
+		}
+		interrupted <- err
+	}
+	t.Cleanup(func() { continuationGap = original })
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "late-gap")
+	f.terminal(t, prompt, "end_turn")
+	select {
+	case <-f.ready:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("continuation submitted after interrupt: %s", acpRead(t, f.reader).Params)
+	}
+	if err := <-interrupted; err != nil {
+		t.Fatal(err)
+	}
+	if status := f.status(t, 1); status.Result.Outcome != "interrupted" || status.Result.NativeStopReason != "end_turn" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if next.Method != "session/prompt" || strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("after gap interrupt = %s %s", next.Method, next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
+// Cancellation retires owned input at the native cancelled terminal: a pull
+// after the interrupt request takes nothing, no continuation follows, no later
+// wake, and the next Run is healthy without it. Input native pulled before
+// the interrupt request is native's.
 func TestWorkerCancelRetiresOwnedInput(t *testing.T) {
 	f := newLaneFixture(t, false)
 	prompt := f.execute(t, 1, "hold")
@@ -431,6 +526,9 @@ func TestWorkerCancelRetiresOwnedInput(t *testing.T) {
 		t.Fatal(cancel.Method)
 	}
 	f.refused(t, "late-after-interrupt")
+	if got := drainedBodies(t, f.drain(t, 90, fixtureID)); len(got) != 0 {
+		t.Fatalf("drain after interrupt = %v", got)
+	}
 	acpWrite(t, f.native, `{"jsonrpc":"2.0","id":`+string(cancel.ID)+`,"result":{"cancelled":true}}`)
 	f.terminal(t, prompt, "cancelled")
 	<-f.ready

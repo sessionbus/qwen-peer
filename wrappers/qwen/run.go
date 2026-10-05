@@ -26,6 +26,15 @@ type nativePrompt struct {
 	stopReason string
 	interrupt  *nativeInterrupt
 }
+
+// errContinuationInterrupted refuses a continuation prompt whose Run was
+// interrupted before the prompt was written to native.
+var errContinuationInterrupted = errors.New("Qwen continuation interrupted before submission")
+
+// continuationGap is a test seam between taking owned input and writing its
+// continuation prompt.
+var continuationGap = func() {}
+
 type nativeInterrupt struct {
 	done chan struct{}
 	err  error
@@ -61,9 +70,22 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 	}
 	prompt := []any{map[string]string{"type": "text", "text": text}}
 	var output, reason string
-	seeded := seed.Delivery != nil
-	for {
-		reason, output, err = p.submitPrompt(ctx, run, prompt, output, report, seeded)
+	if seed.Delivery == nil {
+		report = nil
+	}
+	for continuation := false; ; continuation = true {
+		var nextReason, nextOutput string
+		nextReason, nextOutput, err = p.submitPrompt(ctx, run, prompt, output, report, continuation)
+		if continuation && errors.Is(err, errContinuationInterrupted) {
+			// The interrupt came before the continuation reached native: its
+			// owned input is retired and the Run ends interrupted after its
+			// last native terminal.
+			p.mu.Lock()
+			p.staged, p.stagedBytes = nil, 0
+			p.mu.Unlock()
+			return kit.TurnResult{Outcome: "interrupted", Result: output, NativeStopReason: reason}, nil
+		}
+		reason, output = nextReason, nextOutput
 		p.mu.Lock()
 		var next []string
 		if err == nil && reason == "end_turn" && !run.Interrupted() && !p.closing {
@@ -86,7 +108,8 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 		for _, text := range next {
 			prompt = append(prompt, map[string]string{"type": "text", "text": text})
 		}
-		seeded = false
+		report = nil
+		continuationGap()
 	}
 	outcome := "completed"
 	if reason == "cancelled" {
@@ -98,8 +121,9 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 }
 
 // submitPrompt runs one native prompt of a Run to its terminal. Its output
-// continues prior; only the Run's seed delivery reports a receipt.
-func (p *Wrapper) submitPrompt(ctx context.Context, run *kit.Run, prompt []any, prior string, report func(kit.DeliveryReceipt, error) error, seeded bool) (reason, output string, err error) {
+// continues prior; report is set only for the Run's seed delivery. A
+// continuation is not written once its Run has been interrupted.
+func (p *Wrapper) submitPrompt(ctx context.Context, run *kit.Run, prompt []any, prior string, report func(kit.DeliveryReceipt, error) error, continuation bool) (reason, output string, err error) {
 	p.mu.Lock()
 	if !p.opened || p.closing || p.active != nil {
 		p.mu.Unlock()
@@ -144,6 +168,9 @@ func (p *Wrapper) submitPrompt(ctx context.Context, run *kit.Run, prompt []any, 
 			if p.closing || p.active != t || t.ctx.Err() != nil {
 				return errors.New("Qwen prompt closed before submission")
 			}
+			if continuation && run.Interrupted() {
+				return errContinuationInterrupted
+			}
 			t.attempted = true
 			return nil
 		}, func(raw json.RawMessage, nativeErr error) error {
@@ -176,7 +203,7 @@ func (p *Wrapper) submitPrompt(ctx context.Context, run *kit.Run, prompt []any, 
 			_ = p.startInterrupt(run)
 		}
 	}
-	if seeded {
+	if report != nil {
 		receipt := kit.DeliveryReceipt{Disposition: "written"}
 		var receiptErr error
 		if writeErr != nil {
