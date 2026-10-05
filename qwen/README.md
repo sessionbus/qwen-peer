@@ -102,6 +102,14 @@ Uncertain appends are not replayed, and a partially written record cannot
 corrupt a later one. Registry and native-parent loss withdraw the helper.
 Daemon loss reconnects the same helper and identity; supersession is terminal.
 
+Launching through `qwen-peer` is the user's permission for Sessionbus input in
+that session. Input-file messages do not pass through Qwen's peer-messaging
+policy: if someone has disabled Qwen's peer feature, or set hold or refuse, and
+then launches `qwen-peer`, Sessionbus messages still arrive. A Sessionbus
+message still queued when the user cancels a running turn is returned to the
+composer unsent, as Qwen does with its own typed queue; a message already taken
+into the turn follows Qwen's handling of that turn.
+
 The helper exits as soon as native closes its connection; native waits for that
 during quit. Each helper records the native TUI it is bound to in the launch
 directory. A later managed launch removes a launch directory once that recorded

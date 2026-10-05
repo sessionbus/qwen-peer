@@ -8,16 +8,16 @@ Ordinary `qwen` does not start the Sessionbus MCP helper merely because this
 extension is installed.
 
 An inbound message is collaborator input, subject to the user's instructions
-and native Qwen permissions. The native inbox may hold or refuse it under the
-user's peer policy. A Sessionbus `written` receipt proves only that the helper
-wrote the native inbox frame; it does not prove native admission, model work,
-or completion. Do not automatically resend after an uncertain write.
+and native Qwen permissions. A Sessionbus `written` receipt proves only that
+the helper appended the message to this session's input file; Qwen reads that
+file as ordinary input, so it does not prove model work or completion. Do not
+automatically resend after an uncertain write.
 
 An integrated interactive helper binds to the initial native session ID.
 After `/new`, `/clear`, or `/resume`, exit and launch `qwen-peer` again for the
-new session. The Sessionbus daemon owns lane scheduling; interactive native
-messages use Qwen's inbox and native next-turn policy. Explicit user-disabled
-or refusal settings remain in force.
+new session. The Sessionbus daemon owns lane scheduling; interactive messages
+arrive through Qwen's input file as ordinary input, during a running turn or
+when idle.
 
 For child lanes, `start` returns a session and run ID. Read a `done` or
 `unavailable` result with `status` or `wait` before `ack`; do not acknowledge a
