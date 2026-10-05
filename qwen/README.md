@@ -67,10 +67,10 @@ answered `queued_for_next_turn` at once, without waiting for native, so two
 lanes in mutual Sessionbus sends never wait on each other. Qwen pulls owned
 input through `craft/drainMidTurnQueue` after its next tool batch, at most ten
 messages per pull, into the same native prompt. Input still owned when that
-prompt ends without cancellation is submitted, in order, as the next native
+prompt ends normally (`end_turn`) is submitted, in order, as the next native
 prompt of the same run; the run result joins the prompts' answers and takes
-the final prompt's outcome. An interrupt retires owned input that native has
-not pulled; close or loss discards it. Pulled input belongs to native and is
+the final prompt's outcome. An interrupt or a failed end retires owned input
+that native has not pulled; close or loss discards it. Pulled input belongs to native and is
 never resent. An idle delivery, or one before the prompt is submitted, after
 it ends, after an interrupt request or beyond the bound (256 messages,
 128 KiB), returns NotRunning: the daemon starts an idle delivery as a managed

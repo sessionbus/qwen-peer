@@ -397,6 +397,25 @@ func TestWorkerRefusedDeliveryKeepsLaterOnesWithTheDaemon(t *testing.T) {
 	<-f.ready
 }
 
+// Only a clean native end continues the Run: a failed terminal such as
+// native's session token limit ends it failed and retires owned input.
+func TestWorkerFailedTerminalDoesNotContinue(t *testing.T) {
+	f := newLaneFixture(t, false)
+	prompt := f.execute(t, 1, "active")
+	f.owned(t, "late-after-limit")
+	f.terminal(t, prompt, "max_tokens")
+	<-f.ready
+	if status := f.status(t, 1); status.Result.Outcome != "failed" || status.Result.NativeStopReason != "max_tokens" {
+		t.Fatal(status)
+	}
+	next := f.execute(t, 2, "next")
+	if strings.Contains(string(next.Params), "late-") {
+		t.Fatalf("failed terminal continued: %s", next.Params)
+	}
+	f.terminal(t, next, "end_turn")
+	<-f.ready
+}
+
 // Cancellation retires owned input that native has not pulled: no continuation,
 // no later wake, and a healthy next Run without it.
 func TestWorkerCancelRetiresOwnedInput(t *testing.T) {

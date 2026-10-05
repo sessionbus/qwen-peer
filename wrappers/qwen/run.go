@@ -66,9 +66,10 @@ func (p *Wrapper) executeRun(ctx context.Context, run *kit.Run, seed kit.RunInpu
 		reason, output, err = p.submitPrompt(ctx, run, prompt, output, report, seeded)
 		p.mu.Lock()
 		var next []string
-		if err == nil && reason != "cancelled" && !run.Interrupted() && !p.closing {
+		if err == nil && reason == "end_turn" && !run.Interrupted() && !p.closing {
 			// Input admitted after the prompt's last tool boundary was never
-			// pulled: submit it now, in order, within this Run.
+			// pulled: submit it now, in order, within this Run. Only a clean
+			// end continues; a later prompt must not hide a failed terminal.
 			next = p.takeStagedLocked(len(p.staged))
 		}
 		// Owned input not submitted here is retired with the cancelled,
