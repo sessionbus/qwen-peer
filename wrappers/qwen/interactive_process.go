@@ -3,6 +3,9 @@ package qwen
 
 import "errors"
 
+// The process exists only as an exited (zombie) entry.
+var errNativeNotLive = errors.New("native process is not live")
+
 type nativeProcessIdentity struct {
 	pid, parent int
 	start       string

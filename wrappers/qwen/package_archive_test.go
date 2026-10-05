@@ -107,13 +107,29 @@ esac
 func exercisePackagedInteractiveExec(t *testing.T, public string) {
 	t.Helper()
 	bin := t.TempDir()
+	runtime := t.TempDir()
 	capture := filepath.Join(bin, "native-argv")
 	native := filepath.Join(bin, "qwen")
 	must(t, os.WriteFile(native, []byte("#!/bin/sh\nprintf '%s\\n' \"$$\" \"$SESSIONBUS_QWEN_CONTROLLER_TOKEN\" \"$QWEN_CODE_SESSION_ID\" \"$QWEN_CODE_SYSTEM_DEFAULTS_PATH\" \"$@\" > \"$QWEN_CAPTURE\"\nexit 37\n"), 0700))
+	ended := endedProcessIdentity(t)
+	stale := makeLaunchDirectory(t, runtime, interactiveInputPrefix+"stale", interactiveMarker{supervisor: ended, tui: &ended})
+	preBind := makeLaunchDirectory(t, runtime, interactiveInputPrefix+"prebind", interactiveMarker{supervisor: ended})
+	env := append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "SESSIONBUS_QWEN_CONTROLLER_TOKEN=qpc_stale", "QWEN_CAPTURE="+capture, nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"=", "SESSIONBUS_OLD=stale", "XDG_RUNTIME_DIR="+runtime)
+
+	failed := exec.Command(public, "-n", "chosen", "--mcp-config", "{}", "--mcp-config", "{}")
+	failed.Env = env
+	if err := failed.Run(); err == nil {
+		t.Fatal("two caller --mcp-config values were accepted")
+	}
+	entries, err := os.ReadDir(runtime)
+	must(t, err)
+	check(t, len(entries) == 1 && entries[0].Name() == filepath.Base(preBind), "failed launch left or swept the wrong directories: %v", entries)
+	check(t, func() bool { _, e := os.Lstat(stale); return os.IsNotExist(e) }(), "launch did not sweep an ended bound TUI directory")
+
 	command := exec.Command(public, "-n", "chosen", "--no-chat-recording")
-	command.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), ControllerTokenEnv+"="+fixtureControllerToken, "QWEN_CAPTURE="+capture, nativeSessionEnv+"=stale", laneSystemDefaultsEnv+"=", "SESSIONBUS_OLD=stale")
+	command.Env = env
 	must(t, command.Start())
-	err := command.Wait()
+	err = command.Wait()
 	result, ok := err.(*exec.ExitError)
 	check(t, ok && result.ExitCode() == 37, "native exit not propagated: %v", err)
 	data, err := os.ReadFile(capture)
@@ -122,8 +138,26 @@ func exercisePackagedInteractiveExec(t *testing.T, public string) {
 	pid, err := strconv.Atoi(lines[0])
 	must(t, err)
 	check(t, pid == command.Process.Pid, "wrapper did not exec native: %d != %d", pid, command.Process.Pid)
-	check(t, lines[1] == fixtureControllerToken && lines[2] == "" && lines[3] == "", "credential or native environment projection changed")
-	check(t, strings.Contains(strings.Join(lines[4:], "|"), "/rename -- chosen") && strings.Contains(strings.Join(lines[4:], "|"), "--no-chat-recording"), "native argv lost name or recording choice: %q", lines[4:])
+	check(t, lines[1] == "" && lines[2] == "" && lines[3] == "", "credential or native environment projection changed")
+	argv := lines[4:]
+	check(t, strings.Contains(strings.Join(argv, "|"), "/rename -- chosen") && strings.Contains(strings.Join(argv, "|"), "--no-chat-recording"), "native argv lost name or recording choice: %q", argv)
+	input := ""
+	for index, argument := range argv {
+		if argument == "--input-file" && index+1 < len(argv) {
+			input = argv[index+1]
+		}
+	}
+	check(t, validInteractiveInput(input) && filepath.Dir(filepath.Dir(input)) == runtime, "native input file argument=%q", input)
+	file, err := os.Stat(input)
+	must(t, err)
+	check(t, file.Mode().IsRegular() && file.Mode().Perm() == 0600 && file.Size() == 0, "input file mode=%v size=%d", file.Mode(), file.Size())
+	directory, err := os.Stat(filepath.Dir(input))
+	must(t, err)
+	check(t, directory.Mode().Perm() == 0700, "launch directory mode=%v", directory.Mode())
+	_, err = os.Lstat(filepath.Join(preBind, interactiveInputName))
+	check(t, err == nil, "launch removed an unbound directory: %v", err)
+	marker, ok := readInteractiveMarker(filepath.Dir(input))
+	check(t, ok && marker.supervisor.pid == command.Process.Pid && marker.tui == nil, "launch marker=%+v ok=%v", marker, ok)
 }
 
 func assertGenericSkillPayload(t *testing.T, plugin, root string) {

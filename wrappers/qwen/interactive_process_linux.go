@@ -11,28 +11,39 @@ import (
 )
 
 func inspectNativeProcess(pid int) (nativeProcessIdentity, error) {
-	p := nativeProcessIdentity{pid: pid}
 	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
-		return p, err
+		return nativeProcessIdentity{pid: pid}, err
 	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return nativeProcessIdentity{pid: pid}, err
+	}
+	return parseNativeStat(pid, stat, strings.TrimSpace(string(boot)))
+}
+
+// Only a zombie or dead state is positive evidence that the process ended;
+// malformed or short stat data is an ordinary (ambiguous) error.
+func parseNativeStat(pid int, stat []byte, boot string) (nativeProcessIdentity, error) {
+	p := nativeProcessIdentity{pid: pid}
 	end := strings.LastIndexByte(string(stat), ')')
 	if end < 0 {
 		return p, errors.New("malformed native process stat")
 	}
 	fields := strings.Fields(string(stat[end+1:]))
-	if len(fields) <= 19 || fields[0] == "Z" || fields[0] == "X" {
-		return p, errors.New("native process is not live")
+	// Short data is malformed whatever its state field says.
+	if len(fields) <= 19 {
+		return p, errors.New("malformed native process stat")
 	}
+	if fields[0] == "Z" || fields[0] == "X" {
+		return p, errNativeNotLive
+	}
+	var err error
 	p.parent, err = strconv.Atoi(fields[1])
 	if err != nil {
 		return p, err
 	}
-	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-	if err != nil {
-		return p, err
-	}
-	p.start = strings.TrimSpace(string(boot)) + ":" + fields[19]
+	p.start = boot + ":" + fields[19]
 	return p, nil
 }
 
