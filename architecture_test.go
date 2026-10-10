@@ -23,7 +23,7 @@ import (
 const (
 	peersModule             = "github.com/sessionbus/qwen-peer"
 	sdkModule               = "github.com/antst/sessionbus/bus/sdk/go"
-	sdkVersion              = "v0.5.9"
+	sdkVersion              = "v0.5.12"
 	citationCount           = 13
 	citationReachabilitySHA = "51cd74cc4eda154b6e827baa2a5a3c873b943591d69641d01923686dd7a23e74"
 	factsHeader             = "> Historical source note: citations to pre-split Sessionbus paths resolve in\n> the Forgejo `ai/sessionbus` repository through its `legacy-*` branches.\n> Citations to product source resolve in the external repository and full\n> commit recorded by the split archive manifest. Host evidence paths are\n> immutable external artifacts, not repository paths."
