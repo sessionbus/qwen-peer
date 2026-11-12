@@ -37,6 +37,7 @@ type Wrapper struct {
 	endpoint        *laneEndpoint
 	visibilityDir   string
 	id              string
+	cwd             string
 	active          *nativePrompt
 	run             *sessionkit.Run
 	staged          []string // owned lane input, oldest first
@@ -150,6 +151,7 @@ func (p *Wrapper) Open(ctx context.Context, request sessionkit.OpenRequest) (res
 	}
 	p.mu.Lock()
 	p.child, p.command = child, command
+	p.cwd = cwd
 	p.client = newDuplexACP(input, output, p.receive, p.answer)
 	client := p.client
 	p.mu.Unlock()

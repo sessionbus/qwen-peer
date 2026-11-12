@@ -45,6 +45,7 @@ type interactiveOwner struct {
 	cwd         string
 	conn        *kit.Connection
 	caller      *kit.Caller
+	transfers   *kit.Transfers
 	ready, done chan struct{}
 	init        sync.Once
 	ending      bool
@@ -102,8 +103,13 @@ func newInteractiveOwner(ctx context.Context, env []string, parentPID int) (*int
 	if err != nil {
 		return nil, err
 	}
+	transfers, err := kit.NewConnectionTransfers(nil)
+	if err != nil {
+		return nil, err
+	}
 	lifetime, cancel := context.WithCancel(ctx)
-	b := &interactiveOwner{ctx: lifetime, cancel: cancel, launch: launch, parent: parent, home: home, id: id, cwd: cwd, ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}, 32), writeGate: make(chan struct{}, 1)}
+	b := &interactiveOwner{ctx: lifetime, cancel: cancel, transfers: transfers, launch: launch, parent: parent, home: home, id: id, cwd: cwd, ready: make(chan struct{}), done: make(chan struct{}), slots: make(chan struct{}, 32), writeGate: make(chan struct{}, 1)}
+	b.caller = kit.NewCallerWithTransfers(b.Call, transfers)
 	b.changed = make(chan struct{}, 1)
 	b.dial = (&net.Dialer{}).DialContext
 	b.retry = func(ctx context.Context) bool {
@@ -125,6 +131,7 @@ func (b *interactiveOwner) Initialized() {
 }
 func (b *interactiveOwner) run() {
 	defer close(b.done)
+	defer b.transfers.CloseConnectionGeneration(nil)
 	stop := context.AfterFunc(b.ctx, func() {
 		b.mu.Lock()
 		c := b.conn
@@ -220,7 +227,6 @@ func (b *interactiveOwner) observe() error {
 				b.desire(*row, name)
 				published, lastName, lastCWD = true, name, row.CWD
 				if busDone == nil {
-					b.caller = kit.NewCaller(b.Call)
 					busDone = make(chan struct{})
 					go func() { defer close(busDone); b.reconnect() }()
 				}
@@ -303,6 +309,7 @@ func (b *interactiveOwner) connect() error {
 		}
 		b.mu.Unlock()
 		_ = c.Close()
+		b.transfers.CloseConnectionGeneration(c)
 	}()
 	if ending {
 		return context.Canceled
@@ -313,7 +320,7 @@ func (b *interactiveOwner) connect() error {
 		identity, revision := b.identity, b.revision
 		b.mu.Unlock()
 		if acknowledged != revision {
-			err = c.CallObserved(b.ctx, "session.hello", identity, &struct{}{}, func() error {
+			err = b.transfers.HelloObserved(b.ctx, b.ctx, c, identity, func() error {
 				b.mu.Lock()
 				defer b.mu.Unlock()
 				if b.ending || b.ctx.Err() != nil || b.conn != c {
@@ -385,7 +392,14 @@ func (b *interactiveOwner) Action(ctx context.Context, action string, args json.
 	if err := b.waitReady(ctx); err != nil {
 		return nil, err
 	}
-	return b.caller.Action(ctx, action, args)
+	b.mu.Lock()
+	cwd, _ := b.identity.Info["cwd"].(string)
+	b.mu.Unlock()
+	bound, err := mcp.BindTransferPaths(action, args, cwd)
+	if err != nil {
+		return nil, err
+	}
+	return b.caller.Action(ctx, action, bound)
 }
 func (b *interactiveOwner) End() {
 	b.mu.Lock()
@@ -401,6 +415,15 @@ func (b *interactiveOwner) End() {
 	b.work.Wait()
 }
 func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit.Request) {
+	if b.transfers.HandleConnectionRequest(c, r) {
+		return
+	}
+	var project func(context.Context, *kit.DeliveryRequest) error
+	if r.Method == "message.deliver" {
+		if request, ok := r.Params.(*kit.DeliveryRequest); ok {
+			project = b.transfers.ProjectDelivery(c, request)
+		}
+	}
 	b.mu.Lock()
 	if b.ending || b.ctx.Err() != nil || b.conn != c {
 		b.mu.Unlock()
@@ -441,6 +464,12 @@ func (b *interactiveOwner) handle(ctx context.Context, c *kit.Connection, r *kit
 			if !ok {
 				c.Close()
 				return
+			}
+			if project != nil {
+				if e := project(ctx, request); e != nil {
+					err = c.Result(r, kit.DeliveryReceipt{Disposition: "rejected", Reason: "not connected"})
+					break
+				}
 			}
 			body, e := host.RenderNativeMessage(*request)
 			if e == nil {

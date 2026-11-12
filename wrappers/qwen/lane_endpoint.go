@@ -103,7 +103,7 @@ func (o *laneToolOwner) Action(ctx context.Context, action string, args json.Raw
 func (o *laneToolOwner) ActionWithMeta(ctx context.Context, action string, args, meta json.RawMessage) (json.RawMessage, error) {
 	p := o.endpoint.owner
 	p.mu.Lock()
-	id, ready, closing, caller := p.id, p.opened, p.closing, p.caller
+	id, ready, closing, caller, cwd := p.id, p.opened, p.closing, p.caller, p.cwd
 	p.mu.Unlock()
 	if !ready || closing || id == "" || caller == nil {
 		return nil, errors.New("Qwen lane is not open")
@@ -124,7 +124,11 @@ func (o *laneToolOwner) ActionWithMeta(ctx context.Context, action string, args,
 			}
 		}
 	}
-	return caller.Action(ctx, action, args)
+	bound, err := mcp.BindTransferPaths(action, args, cwd)
+	if err != nil {
+		return nil, err
+	}
+	return caller.Action(ctx, action, bound)
 }
 func (e *laneEndpoint) Close() error {
 	e.mu.Lock()
