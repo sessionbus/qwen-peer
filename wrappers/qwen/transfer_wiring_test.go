@@ -203,7 +203,7 @@ func TestInteractiveTransferUsesTheCurrentNativeRegistryCwd(t *testing.T) {
 	f := w.machine(t, "transfer.prepare", map[string]any{"id": "source-one", "role": "source"})
 	var prepared protocol.TransferPrepared
 	must(t, json.Unmarshal(f.Result, &prepared))
-	check(t, prepared.Size != nil && *prepared.Size == int64(len("native symlink parent")), "native path cleaned or helper cwd borrowed: %s", f.Result)
+	check(t, prepared.Size != nil && *prepared.Size == protocol.Integer(len("native symlink parent")), "native path cleaned or helper cwd borrowed: %s", f.Result)
 }
 func TestInteractiveTransferReceivesAndProjectsWithoutBlockingInput(t *testing.T) {
 	b, w := qwenTransferOwner(t)
